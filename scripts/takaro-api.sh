@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # Curl wrapper for Takaro API with automatic auth refresh.
-# Usage: ./takaro-api.sh METHOD /path [json-body]
-# Example: ./takaro-api.sh GET /gameserver/search '{}'
-# Example: ./takaro-api.sh POST /module/search '{}'
+# Usage: ./takaro-api.sh METHOD /path [json-body-or-@file]
+# Examples:
+#   ./takaro-api.sh GET /gameserver/search '{}'
+#   ./takaro-api.sh POST /module/import @/tmp/module.json
+#   echo '{}' | ./takaro-api.sh POST /module/search -
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -17,9 +19,9 @@ if [[ -z "${TAKARO_HOST:-}" || -z "${TAKARO_DOMAIN_ID:-}" ]]; then
   fi
 fi
 
-METHOD="${1:?Usage: takaro-api.sh METHOD /path [json-body]}"
-PATH_ARG="${2:?Usage: takaro-api.sh METHOD /path [json-body]}"
-BODY="${3:-}"
+METHOD="${1:?Usage: takaro-api.sh METHOD /path [json-body-or-@file]}"
+PATH_ARG="${2:?Usage: takaro-api.sh METHOD /path [json-body-or-@file]}"
+BODY_ARG="${3:-}"
 
 TOKEN_FILE="/tmp/takaro-token"
 
@@ -28,6 +30,29 @@ ensure_token() {
     "$SCRIPT_DIR/takaro-auth.sh" >&2
   fi
 }
+
+# If body is "-", read from stdin into a temp file
+# If body starts with "@", it's already a file reference for curl
+# Otherwise, write to a temp file to avoid shell interpolation issues
+BODY_FILE=""
+CLEANUP_BODY=""
+
+if [[ "$BODY_ARG" == "-" ]]; then
+  BODY_FILE=$(mktemp /tmp/takaro-body-XXXXXX.json)
+  CLEANUP_BODY="$BODY_FILE"
+  cat > "$BODY_FILE"
+elif [[ "$BODY_ARG" == @* ]]; then
+  BODY_FILE="${BODY_ARG#@}"
+elif [[ -n "$BODY_ARG" ]]; then
+  BODY_FILE=$(mktemp /tmp/takaro-body-XXXXXX.json)
+  CLEANUP_BODY="$BODY_FILE"
+  printf '%s' "$BODY_ARG" > "$BODY_FILE"
+fi
+
+cleanup() {
+  [[ -n "$CLEANUP_BODY" ]] && rm -f "$CLEANUP_BODY"
+}
+trap cleanup EXIT
 
 do_request() {
   local token
@@ -41,8 +66,8 @@ do_request() {
     -H "Content-Type: application/json"
   )
 
-  if [[ -n "$BODY" ]]; then
-    args+=(-d "$BODY")
+  if [[ -n "$BODY_FILE" ]]; then
+    args+=(--data-binary "@$BODY_FILE")
   fi
 
   curl "${args[@]}" "${TAKARO_HOST}${PATH_ARG}"

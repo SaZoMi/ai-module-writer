@@ -15,6 +15,8 @@ This repo provides:
 - **Minecraft Paper server** — A real game server for testing (`docker compose up -d paper`)
 - **Bot service** — HTTP API to create and control Minecraft players (`docker compose up -d bot`). See `references/bot-api.md` for the full API.
 - **Auth scripts** — `scripts/takaro-auth.sh` and `scripts/takaro-api.sh` for Takaro API access via curl
+- **Module scripts** — `scripts/module-push.sh` and `scripts/module-pull.sh` for syncing modules between local files and Takaro
+- **Local modules** — `modules/` directory where module code lives as editable files
 
 ### Starting Services
 
@@ -127,20 +129,51 @@ The `data` object contents vary by component type:
 - **Use `Promise.all`** for parallel API calls — don't make sequential calls when they're independent.
 - **Always `await` API calls** — missing awaits is a common silent failure.
 
-### Creating modules via API
+### Local module file structure
 
-Use the auth scripts to interact with the Takaro API. The general flow:
+All module code lives locally in the `modules/` directory. Each module is a folder:
 
-1. Create the module: `bash scripts/takaro-api.sh POST /module '{...}'`
-2. Create functions (if any): `bash scripts/takaro-api.sh POST /function '{...}'`
-3. Create commands/hooks/cronjobs with their code
-4. Install the module on the Minecraft game server
+```
+modules/
+  my-module/
+    module.json              # Name, author, description, version, supportedGames
+    config.json              # Configuration schema (JSON Schema draft-07)
+    permissions.json         # Permission definitions (optional)
+    commands/
+      command-name/
+        index.js             # Command code
+        command.json          # trigger, description, helpText, arguments
+    hooks/
+      hook-name/
+        index.js             # Hook code
+        hook.json             # eventType, description, regex
+    cronjobs/
+      cronjob-name/
+        index.js             # Cronjob code
+        cronjob.json          # temporalValue, description
+    functions/
+      shared-util.js         # Shared function code (filename = function name)
+```
 
-Consult the OpenAPI spec (`bash scripts/takaro-api.sh GET /openapi.json`) for exact endpoint paths, request bodies, and response formats. Don't assume — verify.
+### Development workflow
+
+Write code locally, push to Takaro, install, test. This is the core loop:
+
+1. **Write code** — Edit files in `modules/<name>/` using normal file editing
+2. **Push to Takaro** — `bash scripts/module-push.sh modules/<name>`
+3. **Install on game server** — Use the Takaro API to install the module
+4. **Test in-game** — Use bots to trigger and verify behavior
+5. **Debug & iterate** — Fix code locally, push again, re-test
+
+To pull an existing module from Takaro for local editing:
+```bash
+bash scripts/module-pull.sh "module-name"       # By name
+bash scripts/module-pull.sh <module-uuid>        # By ID
+```
 
 ### Versioning
 
-Takaro modules support semantic versioning. During development, work on the "latest" version. Tag a version when the module is stable and tested.
+Takaro modules support semantic versioning. During development, work on the "latest" version (set `"version": "latest"` in module.json). Tag a version when the module is stable and tested.
 
 ## Phase 4: Testing
 
