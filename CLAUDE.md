@@ -89,3 +89,36 @@ You can debug failing modules using the events endpoint:
 
 **Custom Modules Guide**: https://docs.takaro.io/advanced/custom-modules
 Inside the module, you are using the takaro api client. If you are unsure about a function, input or output you can reference these web pages: https://docs.takaro.io/api-docs/modules/_takaro_apiclient.html
+
+## Minecraft Testing Infrastructure
+
+A real Minecraft Paper server and dynamic Mineflayer bot service are available for testing modules against actual game events.
+
+### Setup
+
+1. Download the Takaro plugin: `bash scripts/download-plugin.sh`
+2. Register a Minecraft game server in your Takaro dashboard (Game Servers -> Add Server -> Minecraft)
+3. Add the registration token and other config to `.env` (see `.env.example` for the Minecraft section)
+4. Start the services: `docker compose up -d paper bot`
+5. Wait for the Paper server to finish starting (check with `docker compose logs paper`)
+
+### Dynamic Bot API
+
+The bot service runs on `http://localhost:3101`. Bots are created and destroyed on demand (no auto-connect).
+
+- **Create a bot**: `curl -X POST http://localhost:3101/bots -H 'Content-Type: application/json' -d '{"name":"player1"}'`
+- **Destroy a bot**: `curl -X DELETE http://localhost:3101/bots/player1`
+- **Check status**: `curl http://localhost:3101/status`
+- **Per-bot actions**: `POST /bot/<name>/chat`, `/move`, `/attack`, `/use`, `/look`, `/jump`, `/respawn`
+- **Per-bot queries**: `GET /bot/<name>/players`, `/position`, `/health`, `/inventory`
+
+### Example Usage
+
+```bash
+# Create a bot and send a Takaro command
+curl -X POST http://localhost:3101/bots -H 'Content-Type: application/json' -d '{"name":"tester"}'
+sleep 5
+curl -X POST http://localhost:3101/bot/tester/chat -H 'Content-Type: application/json' -d '{"message":"+ping"}'
+```
+
+For the full API reference and common workflows, use the `/bot` command.

@@ -58,18 +58,73 @@ The Docker setup includes a mock game server for testing modules. It simulates p
 4. Copy the **registration token** provided
 5. Add these to your `.env` file:
    ```
-   TAKARO_MOCK_REGISTRATION_TOKEN=<paste-your-token>
+   TAKARO_REGISTRATION_TOKEN=<paste-your-token>
    TAKARO_MOCK_IDENTITY_TOKEN=my-local-mock-server
    ```
 6. Restart Docker: `docker compose up -d`
 
 The mock server will appear in your Takaro dashboard as "Local Mock Server". Install modules on it to test them.
 
+## Minecraft Server (Optional)
+
+A real Minecraft Paper server with a Mineflayer bot service for testing modules against actual game events.
+
+### Setup
+
+1. Download the Takaro plugin:
+   ```bash
+   bash scripts/download-plugin.sh
+   ```
+2. Go to your Takaro dashboard
+3. Navigate to **Game Servers** -> **Add Server** -> **Minecraft**
+4. Copy the **registration token** provided
+5. Add these to your `.env` file:
+   ```
+   TAKARO_REGISTRATION_TOKEN=<paste-your-token>
+   TAKARO_MC_IDENTITY_TOKEN=unique-mc-identity
+   RCON_PASSWORD=takaro123
+   TAKARO_WS_URL=wss://connect.takaro.io
+   ```
+6. Start the services:
+   ```bash
+   docker compose up -d paper bot
+   ```
+7. Wait for the Paper server to finish starting (first launch takes a few minutes):
+   ```bash
+   docker compose logs -f paper
+   ```
+
+### Using the Bot
+
+The bot service provides an HTTP API on port 3101 for creating and controlling Minecraft bots on demand:
+
+```bash
+# Create a bot
+curl -X POST http://localhost:3101/bots \
+  -H 'Content-Type: application/json' \
+  -d '{"name": "player1"}'
+
+# Check status
+curl http://localhost:3101/status
+
+# Send a Takaro command
+curl -X POST http://localhost:3101/bot/player1/chat \
+  -H 'Content-Type: application/json' \
+  -d '{"message": "+ping"}'
+
+# Destroy the bot
+curl -X DELETE http://localhost:3101/bots/player1
+```
+
+For the full API reference, see the `/bot` command in Claude (`/bot status`).
+
 ## How it Works
 
 The Docker containers run:
 - **Takaro MCP server** (port 18000) - Claude Code connects here to manage modules
 - **Mock game server** (port 3002) - Simulates a game server for testing
+- **Paper Minecraft server** (port 25665/25675) - Real Minecraft server for testing (optional)
+- **Mineflayer bot** (port 3101) - HTTP-controlled bots for in-game testing (optional)
 
 This repository includes:
 - **CLAUDE.md**: Instructions for Claude on how to write Takaro modules
