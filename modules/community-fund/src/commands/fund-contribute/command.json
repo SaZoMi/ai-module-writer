@@ -1,0 +1,13 @@
+{
+  "trigger": "fund",
+  "description": "Contribute currency to the community fund",
+  "helpText": "Contribute currency to the community fund. Amount must be a positive whole number.",
+  "arguments": [
+    {
+      "name": "amount",
+      "type": "number",
+      "helpText": "The amount of currency to contribute",
+      "position": 0
+    }
+  ]
+}

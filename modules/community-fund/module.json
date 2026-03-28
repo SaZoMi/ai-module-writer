@@ -1,0 +1,6 @@
+{
+  "name": "test-community-fund",
+  "description": "Community Fund — players contribute currency toward a shared goal. When the threshold is reached the fund resets and completion commands fire.",
+  "version": "latest",
+  "supportedGames": ["all"]
+}

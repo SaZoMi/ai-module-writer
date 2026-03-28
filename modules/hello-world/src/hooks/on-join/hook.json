@@ -1,0 +1,4 @@
+{
+  "eventType": "player-connected",
+  "description": "Welcome a player when they join the server"
+}

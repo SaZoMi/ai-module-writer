@@ -1,22 +1,38 @@
 services:
-  takaro-mcp:
-    image: ghcr.io/gettakaro/mcp:0.0.3
+  paper:
+    image: itzg/minecraft-server
     ports:
-      - "18000:3000"
+      - "25665:25565"
+      - "25675:25575"
     environment:
-      - HOST=0.0.0.0
-    env_file:
-      - .env
+      - EULA=TRUE
+      - TYPE=PAPER
+      - VERSION=1.21.11
+      - ONLINE_MODE=false
+      - ENABLE_RCON=true
+      - RCON_PASSWORD=${RCON_PASSWORD:-takaro123}
+      - TAKARO_REGISTRATION_TOKEN=${TAKARO_REGISTRATION_TOKEN}
+      - TAKARO_IDENTITY_TOKEN=${TAKARO_MC_IDENTITY_TOKEN:-nca-ai-paper}
+      - TAKARO_WS_URL=${TAKARO_WS_URL:-wss://connect.takaro.io}
+    volumes:
+      - ./_data/paper:/data
     restart: unless-stopped
 
-  mock-gameserver:
-    image: ghcr.io/gettakaro/takaro-app-mock-gameserver:latest
+  bot:
+    build: ./bot
     ports:
-      - "3002:3002"
+      - "3101:3001"
     environment:
-      - T_WS_URL=wss://connect.takaro.io
-      - MOCK_SERVER_NAME=Local Mock Server
-      - MOCK_SIM_AUTO_START=true
-    env_file:
-      - .env
+      - MC_HOST=paper
+      - MC_PORT=25565
+      - BOT_USERNAME=Bot
+      - BOT_API_PORT=3001
+    depends_on:
+      - paper
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
     restart: unless-stopped
