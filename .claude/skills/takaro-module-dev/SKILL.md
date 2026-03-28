@@ -249,8 +249,8 @@ Test helpers live in `test/helpers/`:
 ### Manual test loop (for debugging or ad-hoc verification)
 
 1. **Ensure services are running**: `docker compose up -d paper bot`
-2. **Create a test bot**: `curl -X POST http://localhost:3101/bots -H 'Content-Type: application/json' -d '{"name":"tester"}'`
-3. **Wait for connection**: `sleep 5 && curl http://localhost:3101/status`
+2. **Create a test bot**: `curl -X POST http://localhost:${BOT_PORT:-3101}/bots -H 'Content-Type: application/json' -d '{"name":"tester"}'`
+3. **Wait for connection**: `sleep 5 && curl http://localhost:${BOT_PORT:-3101}/status`
 4. **Trigger the module** (varies by component type):
    - Command: Send via bot chat
    - Hook: Trigger the game event (via bot action or RCON)
@@ -321,14 +321,14 @@ This phase applies during `/verify`, manual review, or any final check. Never sk
 3. **Create a bot and run every command**:
    ```bash
    # Create bot
-   curl -X POST http://localhost:3101/bots -H 'Content-Type: application/json' -d '{"name":"tester"}'
+   curl -X POST http://localhost:${BOT_PORT:-3101}/bots -H 'Content-Type: application/json' -d '{"name":"tester"}'
    sleep 5
 
    # Get the command prefix for this game server
    bash scripts/takaro-api.sh GET /settings?keys=commandPrefix&gameServerId=<id>
 
    # Run each command via bot chat
-   curl -X POST http://localhost:3101/bot/tester/chat -H 'Content-Type: application/json' \
+   curl -X POST http://localhost:${BOT_PORT:-3101}/bot/tester/chat -H 'Content-Type: application/json' \
      -d '{"message":"/fund 50"}'
    sleep 3
 
@@ -340,7 +340,7 @@ This phase applies during `/verify`, manual review, or any final check. Never sk
 
 5. **Clean up**:
    ```bash
-   curl -X DELETE http://localhost:3101/bots/tester
+   curl -X DELETE http://localhost:${BOT_PORT:-3101}/bots/tester
    ```
 
 ### What counts as verified
@@ -352,7 +352,7 @@ This phase applies during `/verify`, manual review, or any final check. Never sk
 
 ### When exerciser/verify agents encounter this repo
 
-If you are a verification agent (cata-exerciser or similar): this repo's "app" is the Minecraft Paper server + Takaro platform. To exercise a module, use the bot service at `http://localhost:3101` to create bots and trigger commands. Check `references/bot-api.md` for the full bot HTTP API. Do NOT skip with "no app to exercise."
+If you are a verification agent (cata-exerciser or similar): this repo's "app" is the Minecraft Paper server + Takaro platform. To exercise a module, use the bot service at `http://localhost:${BOT_PORT:-3101}` (check `.env` for `BOT_PORT`) to create bots and trigger commands. Check `references/bot-api.md` for the full bot HTTP API. Do NOT skip with "no app to exercise."
 
 ## Phase 6: Debugging
 

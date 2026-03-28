@@ -197,7 +197,7 @@ Each test suite gets its own mock game server with a unique `identityToken`. Thi
 
 1. **Services running**: `docker compose up -d paper bot`
 2. **Paper server ready**: Check `docker compose logs --tail=5 paper` — look for "Done" message
-3. **Bot service healthy**: `curl http://localhost:3101/status`
+3. **Bot service healthy**: `curl http://localhost:${BOT_PORT:-3101}/status`
 4. **Module installed**: Verify via Takaro API
 5. **Command prefix known**: Fetch from settings API — never assume
 
@@ -205,16 +205,16 @@ Each test suite gets its own mock game server with a unique `identityToken`. Thi
 
 ```bash
 # 1. Create a bot
-curl -X POST http://localhost:3101/bots \
+curl -X POST http://localhost:${BOT_PORT:-3101}/bots \
   -H 'Content-Type: application/json' \
   -d '{"name":"tester"}'
 
 # 2. Wait for connection
 sleep 5
-curl http://localhost:3101/status
+curl http://localhost:${BOT_PORT:-3101}/status
 
 # 3. Send the command (use the correct prefix!)
-curl -X POST http://localhost:3101/bot/tester/chat \
+curl -X POST http://localhost:${BOT_PORT:-3101}/bot/tester/chat \
   -H 'Content-Type: application/json' \
   -d '{"message":"+commandname arg1 arg2"}'
 
@@ -230,7 +230,7 @@ bash scripts/takaro-api.sh POST /event/search '{
 }'
 
 # 6. Clean up
-curl -X DELETE http://localhost:3101/bots/tester
+curl -X DELETE http://localhost:${BOT_PORT:-3101}/bots/tester
 ```
 
 ### Testing Hooks

@@ -1,8 +1,8 @@
 # Bot API Reference
 
-The bot service runs on port 3101 and provides an HTTP API for creating and controlling Minecraft player bots for testing.
+The bot service provides an HTTP API for creating and controlling Minecraft player bots for testing. The port is configured by `BOT_PORT` in `.env` (default 3101).
 
-**Base URL**: `http://localhost:3101`
+**Base URL**: `http://localhost:${BOT_PORT:-3101}`
 
 All POST endpoints require `Content-Type: application/json` header.
 
@@ -108,21 +108,21 @@ Returns: `[{name, count, slot, displayName}, ...]`
 
 ```bash
 # Create a bot
-curl -X POST http://localhost:3101/bots \
+curl -X POST http://localhost:${BOT_PORT:-3101}/bots \
   -H 'Content-Type: application/json' \
   -d '{"name":"tester"}'
 
 # Wait for connection
 sleep 5
-curl http://localhost:3101/status
+curl http://localhost:${BOT_PORT:-3101}/status
 
 # Trigger a command
-curl -X POST http://localhost:3101/bot/tester/chat \
+curl -X POST http://localhost:${BOT_PORT:-3101}/bot/tester/chat \
   -H 'Content-Type: application/json' \
   -d '{"message":"/greet World"}'
 
 # Clean up
-curl -X DELETE http://localhost:3101/bots/tester
+curl -X DELETE http://localhost:${BOT_PORT:-3101}/bots/tester
 ```
 
 ## Troubleshooting

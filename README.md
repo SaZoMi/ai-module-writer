@@ -27,6 +27,23 @@ cd ai-module-writer
 cp .env.example .env
 ```
 
+### Running Multiple Instances
+
+To run multiple clones simultaneously (e.g., `ai-module-writer-1` through `ai-module-writer-5`), set a unique `INSTANCE_ID` (0-9) in each clone's `.env` file, then generate the port offsets:
+
+```bash
+# In each clone, set the INSTANCE_ID and generate ports
+scripts/instance-env.sh 2 >> .env   # appends MC_PORT=25667, BOT_PORT=3103, etc.
+```
+
+| Instance | MC Port | RCON Port | Bot Port | Redis Port |
+|----------|---------|-----------|----------|------------|
+| 0 | 25665 | 25675 | 3101 | 6379 |
+| 1 | 25666 | 25676 | 3102 | 6380 |
+| 2 | 25667 | 25677 | 3103 | 6381 |
+
+Each clone also needs a unique `TAKARO_MC_IDENTITY_TOKEN` in `.env`.
+
 ### Configure your `.env` file
 
 You need:
@@ -71,8 +88,8 @@ claude
 ## How it Works
 
 The Docker containers run:
-- **Paper Minecraft server** (port 25665/25675) — Real Minecraft server for in-game testing
-- **Mineflayer bot service** (port 3101) — HTTP-controlled bots for simulating players
+- **Paper Minecraft server** (port `MC_PORT`/`RCON_PORT`, default 25665/25675) — Real Minecraft server for in-game testing
+- **Mineflayer bot service** (port `BOT_PORT`, default 3101) — HTTP-controlled bots for simulating players
 
 This repository includes:
 - **Auth scripts** (`scripts/`) — Authenticate with the Takaro API and make curl calls
@@ -83,10 +100,10 @@ Modules are created and managed directly in Takaro via the API — no module cod
 
 ## Using the Bot
 
-The bot service provides an HTTP API on port 3101 for creating and controlling Minecraft bots:
+The bot service provides an HTTP API (port configured by `BOT_PORT` in `.env`, default 3101) for creating and controlling Minecraft bots:
 
 ```bash
-# Create a bot
+# Create a bot (replace 3101 with your BOT_PORT if different)
 curl -X POST http://localhost:3101/bots \
   -H 'Content-Type: application/json' \
   -d '{"name": "player1"}'
