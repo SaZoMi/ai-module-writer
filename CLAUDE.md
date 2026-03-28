@@ -42,7 +42,7 @@ docker compose up -d paper bot redis
 # See the takaro-module-dev skill for detailed steps
 ```
 
-**For verification agents**: This repo's "app" is the Minecraft server + Takaro. Use the bot service at `http://localhost:3101` to exercise modules. See `references/bot-api.md` for the API.
+**For verification agents**: This repo's "app" is the Minecraft server + Takaro. Use the bot service at `http://localhost:${BOT_PORT:-3101}` to exercise modules. See `references/bot-api.md` for the API. Check `.env` for the actual `BOT_PORT` value.
 
 ## Module Development
 
@@ -61,5 +61,5 @@ Module code lives locally in `modules/` as editable files, then gets pushed to T
 - **`npm run module:to-json`** — Convert local module dir to Takaro import JSON (calls compiled `dist/scripts/module-to-json.js`)
 - **`npm run module:from-json`** — Convert Takaro export JSON to local module dir (calls compiled `dist/scripts/json-to-module.js`)
 - **`scripts/download-plugin.sh`** — Download the Takaro Minecraft plugin
-- **Bot service** (port 3101) — Create and control Minecraft bots for testing
+- **Bot service** (port `BOT_PORT`, default 3101) — Create and control Minecraft bots for testing
 - **RCON** — `docker compose exec paper rcon-cli <command>`

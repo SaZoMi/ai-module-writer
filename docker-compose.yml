@@ -2,8 +2,8 @@ services:
   paper:
     image: itzg/minecraft-server
     ports:
-      - "25665:25565"
-      - "25675:25575"
+      - "${MC_PORT:-25665}:25565"
+      - "${RCON_PORT:-25675}:25575"
     environment:
       - EULA=TRUE
       - TYPE=PAPER
@@ -14,6 +14,8 @@ services:
       - TAKARO_REGISTRATION_TOKEN=${TAKARO_REGISTRATION_TOKEN}
       - TAKARO_IDENTITY_TOKEN=${TAKARO_MC_IDENTITY_TOKEN:-nca-ai-paper}
       - TAKARO_WS_URL=${TAKARO_WS_URL:-wss://connect.takaro.io}
+      - PLUGINS=https://github.com/gettakaro/takaro-minecraft/releases/download/${TAKARO_PLUGIN_VERSION:-0.0.5}/takaro-paper-${TAKARO_PLUGIN_VERSION:-0.0.5}.jar
+      - REMOVE_OLD_PLUGINS=TRUE
     volumes:
       - ./_data/paper:/data
     restart: unless-stopped
@@ -21,7 +23,7 @@ services:
   bot:
     build: ./bot
     ports:
-      - "3101:3001"
+      - "${BOT_PORT:-3101}:3001"
     environment:
       - MC_HOST=paper
       - MC_PORT=25565
@@ -34,5 +36,5 @@ services:
   redis:
     image: redis:7-alpine
     ports:
-      - "6379:6379"
+      - "${REDIS_PORT:-6379}:6379"
     restart: unless-stopped
