@@ -139,6 +139,10 @@ export async function getCommandPrefix(client: Client, gameServerId: string): Pr
  * Delete all modules whose names start with 'test-' (safety net cleanup).
  * Always re-fetches page 0 until no results remain, to avoid pagination
  * shift bugs when items are deleted from the current page.
+ * Uses search: { name: ['test-'] } for a partial-match search.
+ * If the search fails (e.g. due to server-side errors on corrupt data), the
+ * cleanup is skipped — this is non-fatal since module names are unique and
+ * each test's before() also deletes specific modules by name before importing.
  */
 export async function cleanupTestModules(client: Client): Promise<void> {
   const limit = 100;
@@ -148,15 +152,77 @@ export async function cleanupTestModules(client: Client): Promise<void> {
     if (++iterations > MAX_ITERATIONS) {
       throw new Error(`cleanupTestModules exceeded ${MAX_ITERATIONS} iterations — possible infinite loop`);
     }
-    const result = await client.module.moduleControllerSearch({
-      limit,
-      page: 0,
-    });
+    let result;
+    try {
+      result = await client.module.moduleControllerSearch({
+        limit,
+        page: 0,
+        search: { name: ['test-'] },
+      });
+    } catch (err) {
+      // Non-fatal: cleanup search failed (e.g. server-side error on corrupt module data).
+      // The test's pushModule will handle idempotent cleanup for the specific module being tested.
+      console.error('cleanupTestModules: search failed (non-fatal, skipping cleanup):', err);
+      return;
+    }
     const mods = result.data.data.filter((m) => m.name.startsWith('test-'));
     if (mods.length === 0) break;
     for (const mod of mods) {
       await client.module.moduleControllerRemove(mod.id);
     }
+  }
+}
+
+/**
+ * Create a role with specific module permissions and assign it to a player.
+ * Returns the role ID for cleanup.
+ */
+export async function assignPermissions(
+  client: Client,
+  playerId: string,
+  gameServerId: string,
+  permissionCodes: string[],
+): Promise<string> {
+  if (permissionCodes.length === 0) throw new Error('assignPermissions: permissionCodes must not be empty');
+  const allPerms = await client.role.roleControllerGetPermissions();
+  const permInputs = allPerms.data.data
+    .filter((p) => permissionCodes.includes(p.permission))
+    .map((p) => ({ permissionId: p.id }));
+  if (permInputs.length !== permissionCodes.length) {
+    const found = allPerms.data.data.filter((p) => permissionCodes.includes(p.permission)).map((p) => p.permission);
+    const missing = permissionCodes.filter((c) => !found.includes(c));
+    throw new Error(`Permissions not found: ${missing.join(', ')}. Available: ${allPerms.data.data.map((p) => p.permission).join(', ')}`);
+  }
+  // Role name max length is 20 chars. Include randomness to avoid collisions when tests run in parallel.
+  // Format: "tr-" (3) + 5 base-36 timestamp chars + 4 base-36 random chars = 12 chars total. Well under 20.
+  const role = await client.role.roleControllerCreate({
+    name: `tr-${Date.now().toString(36).slice(-5)}${Math.random().toString(36).slice(-4)}`,
+    permissions: permInputs,
+  });
+  try {
+    await client.player.playerControllerAssignRole(playerId, role.data.data.id, { gameServerId });
+  } catch (err) {
+    // Clean up the created role to avoid orphans before rethrowing
+    try {
+      await client.role.roleControllerRemove(role.data.data.id);
+    } catch (cleanupErr) {
+      console.error(`assignPermissions: failed to clean up orphaned role '${role.data.data.id}' after assignment failure:`, cleanupErr);
+    }
+    throw err;
+  }
+  return role.data.data.id;
+}
+
+/**
+ * Delete a role by ID. Non-fatal — errors are logged but not thrown.
+ * Accepts undefined to handle cases where before() failed before a role was created.
+ */
+export async function cleanupRole(client: Client, roleId: string | undefined): Promise<void> {
+  if (!roleId) return;
+  try {
+    await client.role.roleControllerRemove(roleId);
+  } catch (err) {
+    console.error(`cleanupRole: failed to delete role '${roleId}':`, err);
   }
 }
 

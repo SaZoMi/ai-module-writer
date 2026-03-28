@@ -75,6 +75,7 @@ Before coding, collaborate with the user to design the module. Your role here is
   - Hooks: What game events should trigger behavior?
   - Cronjobs: What needs to happen on a schedule?
   - Functions: What code is shared across components?
+- **Permissions** — Which commands should be permission-gated? Define permissions for each gated command.
 - **Player UX** — Think from the player's perspective:
   - Are command names intuitive? Would a player guess them?
   - Are error messages helpful? If a player types wrong arguments, do they get guidance?
@@ -128,6 +129,37 @@ The `data` object contents vary by component type:
 - **Use `TakaroUserError`** for player-facing errors — these show a clean message to the player instead of a stack trace.
 - **Use `Promise.all`** for parallel API calls — don't make sequential calls when they're independent.
 - **Always `await` API calls** — missing awaits is a common silent failure.
+
+### Permissions
+
+Modules can define permissions that admins assign to roles. Permissions are NOT automatically enforced — you must check them in your command/hook code.
+
+**Defining permissions** — Create `permissions.json` in the module root:
+```json
+[
+  {
+    "permission": "MY_MODULE_DO_THING",
+    "friendlyName": "Do the Thing",
+    "description": "Allows a player to do the thing",
+    "canHaveCount": false
+  }
+]
+```
+
+**Enforcing permissions in code** — Use `checkPermission` from `@takaro/helpers`:
+```javascript
+import { data, TakaroUserError, checkPermission } from '@takaro/helpers';
+
+async function main() {
+  const { pog } = data;
+  if (!checkPermission(pog, 'MY_MODULE_DO_THING')) {
+    throw new TakaroUserError('You do not have permission to do this.');
+  }
+  // ... rest of command
+}
+```
+
+**Important**: `checkPermission` returns truthy if the player's role has the permission, falsy otherwise. When `canHaveCount: true`, the return value has a `.count` property for numeric permissions (e.g., "max 5 teleports").
 
 ### Local module file structure
 
@@ -236,11 +268,93 @@ Test helpers live in `test/helpers/`:
 - **Multi-player scenarios** where relevant
 - **UX check** — are messages clear and useful to a player?
 
+### Permission testing
+
+Module permissions are registered when the module is imported via `pushModule`. However, test players only have the default "Player" role which does NOT include custom module permissions. You MUST set up permissions in your tests:
+
+1. **Create a role with the required permissions** — after pushModule + installModule
+2. **Assign the role to a specific test player** — only that player can use gated commands
+3. **Test BOTH paths** — permitted player succeeds, unpermitted player is denied
+4. **Clean up the role** — in after() hook
+
+Use the `assignPermissions` and `cleanupRole` helpers from `test/helpers/modules.ts`:
+
+```typescript
+// In before():
+roleId = await assignPermissions(client, ctx.players[0].playerId, ctx.gameServer.id, ['MY_PERMISSION']);
+
+// Test: permitted player (ctx.players[0]) succeeds
+// Test: unpermitted player (ctx.players[1]) gets denied
+
+// In after():
+await cleanupRole(client, roleId);
+```
+
+**Common mistake**: Forgetting that test players don't have custom permissions. If your command uses `checkPermission` and tests fail with "do not have permission", you need to set up the role/permission in your test setup.
+
 ### Correctness over speed
 
 Take as long as needed. A thoroughly tested module that takes hours is far more valuable than a quick module with untested edge cases. When in doubt, add another test case.
 
-## Phase 5: Debugging
+## Phase 5: In-Game Verification (Mandatory)
+
+Automated tests use a mock game server — they validate logic but don't prove the module works in a real game. In-game verification uses the actual Minecraft Paper server with bot players and is **required before a module is considered done**. This is the whole point of having the Minecraft setup in this repo.
+
+This phase applies during `/verify`, manual review, or any final check. Never skip it with "N/A — no app to exercise." The app IS the Minecraft server + Takaro, and the bot service IS how you exercise it.
+
+### Steps
+
+1. **Start services** (if not already running):
+   ```bash
+   docker compose up -d paper bot redis
+   # Wait for Paper to be ready
+   docker compose logs --tail=5 paper  # look for "Done" message
+   ```
+
+2. **Push and install the module on the real game server**:
+   ```bash
+   npm run build
+   bash scripts/module-push.sh modules/<name>
+   ```
+   Then install the module on the Paper game server via the Takaro API. The Paper server must be registered in Takaro — check with `bash scripts/takaro-api.sh POST /gameserver/search '{}'`.
+
+3. **Create a bot and run every command**:
+   ```bash
+   # Create bot
+   curl -X POST http://localhost:3101/bots -H 'Content-Type: application/json' -d '{"name":"tester"}'
+   sleep 5
+
+   # Get the command prefix for this game server
+   bash scripts/takaro-api.sh GET /settings?keys=commandPrefix&gameServerId=<id>
+
+   # Run each command via bot chat
+   curl -X POST http://localhost:3101/bot/tester/chat -H 'Content-Type: application/json' \
+     -d '{"message":"/fund 50"}'
+   sleep 3
+
+   # Check the execution event
+   bash scripts/takaro-api.sh POST /event/search '{"filters":{"eventName":["command-executed"]},"sortBy":"createdAt","sortDirection":"desc","limit":3}'
+   ```
+
+4. **Verify every command works**: Check each execution event for `success: true` and review the logs for expected output. Test error paths too (wrong arguments, missing permissions).
+
+5. **Clean up**:
+   ```bash
+   curl -X DELETE http://localhost:3101/bots/tester
+   ```
+
+### What counts as verified
+
+- Every command in the module was triggered by a bot in the real Minecraft server
+- Every command's execution event shows `success: true`
+- Error paths were tested (wrong args, denied permissions) and show proper error messages
+- The module can be uninstalled and reinstalled cleanly
+
+### When exerciser/verify agents encounter this repo
+
+If you are a verification agent (cata-exerciser or similar): this repo's "app" is the Minecraft Paper server + Takaro platform. To exercise a module, use the bot service at `http://localhost:3101` to create bots and trigger commands. Check `references/bot-api.md` for the full bot HTTP API. Do NOT skip with "no app to exercise."
+
+## Phase 6: Debugging
 
 When something doesn't work, check `references/debugging-patterns.md` for the debugging playbook.
 

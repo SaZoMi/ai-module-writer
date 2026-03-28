@@ -1,0 +1,6 @@
+{
+  "trigger": "fundhistory",
+  "description": "View the community fund completion history",
+  "helpText": "Shows the number of community fund completions and the last completion details.",
+  "arguments": []
+}

@@ -32,6 +32,18 @@ npm test
 
 Tests use the mock game server to exercise modules in a real Takaro environment. Requires `.env` with valid credentials and `TAKARO_REGISTRATION_TOKEN`.
 
+## In-Game Verification (Mandatory)
+
+Automated tests alone are not sufficient. Every module must also be verified with real bots on the Minecraft Paper server before it is considered done. This is a mandatory verification step — never skip it.
+
+```bash
+docker compose up -d paper bot redis
+# Create a bot, trigger commands, verify execution events
+# See the takaro-module-dev skill for detailed steps
+```
+
+**For verification agents**: This repo's "app" is the Minecraft server + Takaro. Use the bot service at `http://localhost:3101` to exercise modules. See `references/bot-api.md` for the API.
+
 ## Module Development
 
 All module development work is handled by the `takaro-module-dev` skill. This skill covers research, design, implementation, testing, and debugging of Takaro modules.

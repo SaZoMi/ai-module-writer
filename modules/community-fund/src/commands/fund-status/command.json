@@ -1,0 +1,6 @@
+{
+  "trigger": "fundstatus",
+  "description": "Check the current community fund status",
+  "helpText": "Shows the current community fund total, target, and round count.",
+  "arguments": []
+}
