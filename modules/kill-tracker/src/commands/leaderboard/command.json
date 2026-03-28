@@ -1,0 +1,14 @@
+{
+  "trigger": "top",
+  "description": "View the kill points leaderboard",
+  "helpText": "View the top players ranked by points. Use /top [page] to browse pages.",
+  "arguments": [
+    {
+      "name": "page",
+      "type": "number",
+      "helpText": "Page number (default: 1)",
+      "position": 0,
+      "defaultValue": "1"
+    }
+  ]
+}

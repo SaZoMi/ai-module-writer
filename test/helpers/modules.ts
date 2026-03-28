@@ -173,26 +173,37 @@ export async function cleanupTestModules(client: Client): Promise<void> {
   }
 }
 
+export interface PermissionInput {
+  code: string;
+  count?: number;
+}
+
 /**
  * Create a role with specific module permissions and assign it to a player.
  * Returns the role ID for cleanup.
+ * Accepts either string[] (no count) or PermissionInput[] (with optional count).
  */
 export async function assignPermissions(
   client: Client,
   playerId: string,
   gameServerId: string,
-  permissionCodes: string[],
+  permissionCodes: string[] | PermissionInput[],
 ): Promise<string> {
   if (permissionCodes.length === 0) throw new Error('assignPermissions: permissionCodes must not be empty');
+
+  // Normalize to PermissionInput[] format
+  const normalized: PermissionInput[] = permissionCodes.map((p) =>
+    typeof p === 'string' ? { code: p } : p,
+  );
+
   const allPerms = await client.role.roleControllerGetPermissions();
-  const permInputs = allPerms.data.data
-    .filter((p) => permissionCodes.includes(p.permission))
-    .map((p) => ({ permissionId: p.id }));
-  if (permInputs.length !== permissionCodes.length) {
-    const found = allPerms.data.data.filter((p) => permissionCodes.includes(p.permission)).map((p) => p.permission);
-    const missing = permissionCodes.filter((c) => !found.includes(c));
-    throw new Error(`Permissions not found: ${missing.join(', ')}. Available: ${allPerms.data.data.map((p) => p.permission).join(', ')}`);
-  }
+  const permInputs = normalized.map((input) => {
+    const found = allPerms.data.data.find((p) => p.permission === input.code);
+    if (!found) throw new Error(`Permission '${input.code}' not found`);
+    const result: { permissionId: string; count?: number } = { permissionId: found.id };
+    if (input.count !== undefined) result.count = input.count;
+    return result;
+  });
   // Role name max length is 20 chars. Include randomness to avoid collisions when tests run in parallel.
   // Format: "tr-" (3) + 5 base-36 timestamp chars + 4 base-36 random chars = 12 chars total. Well under 20.
   const role = await client.role.roleControllerCreate({

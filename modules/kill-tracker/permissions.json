@@ -1,0 +1,20 @@
+[
+  {
+    "permission": "KILL_TRACKER_VIEW_STATS",
+    "friendlyName": "View Kill Stats",
+    "description": "Allows a player to view kill stats and leaderboard",
+    "canHaveCount": false
+  },
+  {
+    "permission": "KILL_TRACKER_RESET",
+    "friendlyName": "Reset Kill Stats",
+    "description": "Allows an admin to reset kill stats for a player or all players",
+    "canHaveCount": false
+  },
+  {
+    "permission": "KILL_TRACKER_MULTIPLIER",
+    "friendlyName": "Point Multiplier",
+    "description": "Count = point multiplier for this player (e.g. count=2 means 2x points)",
+    "canHaveCount": true
+  }
+]
