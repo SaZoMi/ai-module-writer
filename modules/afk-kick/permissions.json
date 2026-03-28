@@ -1,0 +1,8 @@
+[
+  {
+    "permission": "IMMUNE_TO_AFK_KICK",
+    "friendlyName": "Immune to AFK Kick",
+    "description": "Exempts a player from AFK detection and kick entirely",
+    "canHaveCount": false
+  }
+]

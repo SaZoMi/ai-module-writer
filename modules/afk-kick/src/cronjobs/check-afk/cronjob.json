@@ -1,0 +1,4 @@
+{
+  "temporalValue": "*/1 * * * *",
+  "description": "Check online players for AFK and warn/kick based on configured thresholds"
+}
