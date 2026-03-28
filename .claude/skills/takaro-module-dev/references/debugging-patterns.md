@@ -1,47 +1,143 @@
 # Debugging Patterns
 
-This file documents known debugging patterns for Takaro module development. It starts minimal and grows as we discover new failure modes through real usage.
+This document describes how to debug Takaro module execution failures.
 
-## Reading Execution Events
+## Quick Diagnosis Table
 
-Fetch the latest execution event for your component:
+| Symptom | Likely Cause |
+|---------|-------------|
+| Empty logs + `success: true` | Missing `import { data, takaro } from '@takaro/helpers'` or wrong API method names |
+| Empty logs + `success: false` | Syntax error or runtime crash |
+| Populated logs + error | API call failed — check the error message |
+| No execution event at all | Module not installed, wrong command prefix, or wrong game server |
+| Hook never fires | Wrong `eventType` in hook.json, or module not installed on that game server |
+| Cronjob never fires | Wrong `temporalValue` cron expression, or module not installed |
+
+## Step-by-Step Debugging
+
+### 1. Check the execution event
+
+After triggering a command or hook, fetch the event:
 
 ```bash
 bash scripts/takaro-api.sh POST /event/search '{
   "filters": { "eventName": ["command-executed"] },
   "sortBy": "createdAt",
   "sortDirection": "desc",
-  "limit": 3
+  "limit": 1
 }'
 ```
 
-Replace `command-executed` with `hook-executed` or `cronjob-executed` as needed.
+Look at:
+- `meta.result.success` — did it succeed?
+- `meta.result.logs` — what did `console.log` output?
+- `meta.result.error` — error message if it failed
 
-## Log Interpretation
+### 2. Add console.log statements
 
-| Logs | Success | Meaning |
-|------|---------|---------|
-| Populated | true | Module ran and made API calls — check if the right calls were made |
-| Populated | false | Module ran but an API call or assertion failed — read the error |
-| Empty | true | Module code has a bug — likely missing imports, wrong method names, or unhandled exception |
-| Empty | false | Module crashed before executing — syntax error or missing dependency |
+Add logging to your module code and re-push:
 
-## Known Pitfalls
+```javascript
+async function main() {
+  const { gameServerId, player, module: mod } = data;
+  console.log('Command triggered by player:', player?.name);
+  console.log('Module config:', mod?.userConfig);
+  // ... rest of your code
+}
+```
 
-- **Missing imports**: Without `import { data, takaro } from '@takaro/helpers'` the code fails silently (empty logs + success)
-- **Wrong API method names**: The API client uses camelCase. Check the OpenAPI spec for exact names.
-- **Missing `await`**: Forgetting to await an API call means it fires but the result is never checked and errors are swallowed.
-- **Wrong command prefix**: Each game server has its own prefix. Always fetch it from the settings API.
-- **`commandTrigger` uses `gameServerId` as the `id` parameter**, not the command's own ID.
+Then re-push and re-trigger, and check the execution event logs.
 
-## Fix-Redeploy-Retest Cycle
+### 3. Check the command prefix
 
-1. Identify the issue from execution logs
-2. Update the module code via the Takaro API
-3. Re-trigger the component
-4. Check the new execution event
-5. Repeat until the test passes
+The command prefix is configured per game server. Fetch it:
 
----
+```bash
+bash scripts/takaro-api.sh GET '/settings?gameServerId=<your-game-server-id>&keys[]=commandPrefix'
+```
 
-*This file grows as we discover new patterns. Add entries here when you encounter a new failure mode.*
+If you expect `/greet` but the prefix is `!`, you need to send `!greet`.
+
+### 4. Verify module is installed
+
+Check that the module is installed on the right game server:
+
+```bash
+bash scripts/takaro-api.sh POST /module/installations/search '{
+  "filters": { "gameserverId": ["<your-game-server-id>"] }
+}'
+```
+
+### 5. Check Takaro API errors
+
+If an API call inside your module fails, the error appears in `meta.result.logs` or `meta.result.error`. Common issues:
+- Insufficient permissions — check module `permissions.json`
+- Wrong parameter names — check the OpenAPI spec: `bash scripts/takaro-api.sh GET /openapi.json`
+- Player not found — ensure the player is online
+
+## Common Mistakes
+
+### Missing await
+
+```javascript
+// WRONG — fire and forget, error is swallowed
+takaro.player.playerControllerSendMessage(gameServerId, playerId, { message: 'Hello' });
+
+// CORRECT
+await takaro.player.playerControllerSendMessage(gameServerId, playerId, { message: 'Hello' });
+```
+
+### Wrong import
+
+```javascript
+// WRONG — helpers not imported
+const { player } = data; // data is undefined
+
+// CORRECT
+import { data, takaro } from '@takaro/helpers';
+const { player } = data;
+```
+
+### Wrong event type
+
+```json
+// hook.json — check the exact event type strings in Takaro docs
+{
+  "eventType": "player-connected"  // not "playerConnected" or "PLAYER_CONNECTED"
+}
+```
+
+## Fetching Execution Events in Tests
+
+Use the `waitForEvent` helper in tests:
+
+```typescript
+const event = await waitForEvent(client, {
+  eventName: EventSearchInputAllowedFiltersEventNameEnum.CommandExecuted,
+  gameserverId: ctx.gameServer.id,
+  after: beforeTimestamp,
+  timeout: 30000,
+});
+
+// Inspect what happened
+const meta = event.meta as { result?: { success?: boolean; logs?: unknown[]; error?: string } };
+console.log('Success:', meta?.result?.success);
+console.log('Logs:', meta?.result?.logs);
+console.log('Error:', meta?.result?.error);
+```
+
+## Re-pushing After Code Changes
+
+After fixing module code, always re-push before testing:
+
+```bash
+npm run build  # Ensure TypeScript is compiled
+bash scripts/module-push.sh modules/<name>
+```
+
+The push script handles the case where a module already exists by deleting and re-importing it (search-delete-import pattern — the Takaro API does not return 409 on duplicates, it silently renames with an `-imported` suffix).
+
+## Module Push Gotchas
+
+- The Takaro import API returns 200 even when a module with the same name exists — it silently creates a copy with `-imported` suffix. That's why `module-push.sh` does search-delete-import instead of relying on error codes.
+- After a failed import where the old module was already deleted, the module is gone. The push script warns about this.

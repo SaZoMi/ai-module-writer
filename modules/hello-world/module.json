@@ -1,0 +1,6 @@
+{
+  "name": "test-hello-world",
+  "description": "A simple hello world module for testing",
+  "version": "latest",
+  "supportedGames": ["all"]
+}

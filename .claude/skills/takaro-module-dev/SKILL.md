@@ -139,21 +139,27 @@ modules/
     module.json              # Name, author, description, version, supportedGames
     config.json              # Configuration schema (JSON Schema draft-07)
     permissions.json         # Permission definitions (optional)
-    commands/
-      command-name/
-        index.js             # Command code
-        command.json          # trigger, description, helpText, arguments
-    hooks/
-      hook-name/
-        index.js             # Hook code
-        hook.json             # eventType, description, regex
-    cronjobs/
-      cronjob-name/
-        index.js             # Cronjob code
-        cronjob.json          # temporalValue, description
-    functions/
-      shared-util.js         # Shared function code (filename = function name)
+    src/                     # Source code lives under src/
+      commands/
+        command-name/
+          index.js           # Command code (JavaScript, executed server-side by Takaro)
+          command.json       # trigger, description, helpText, arguments
+      hooks/
+        hook-name/
+          index.js           # Hook code
+          hook.json          # eventType, description, regex
+      cronjobs/
+        cronjob-name/
+          index.js           # Cronjob code
+          cronjob.json       # temporalValue, description
+      functions/
+        shared-util.js       # Shared function code (filename = function name)
+    test/                    # Automated tests (TypeScript)
+      my-command.test.ts     # Tests for commands
+      my-hook.test.ts        # Tests for hooks
 ```
+
+Module source code (`index.js` files inside `src/`) stays JavaScript because Takaro executes it server-side. All test helpers and test files are TypeScript.
 
 ### Development workflow
 
@@ -179,7 +185,36 @@ Takaro modules support semantic versioning. During development, work on the "lat
 
 Testing is the most important phase. A module is not done until every acceptance criterion passes in a real game environment. Read `references/testing-methodology.md` for the complete testing playbook.
 
-### Quick test loop
+### Automated tests (preferred)
+
+The repo has a TypeScript test infrastructure that exercises modules against a real Takaro environment using the mock game server. This is the preferred testing approach for reliability and repeatability.
+
+```bash
+# Ensure Redis is running (required by mock game server)
+docker compose up -d redis
+
+# Build TypeScript (required before running tests)
+npm run build
+
+# Run all module tests
+npm test
+```
+
+Each module has a `test/` directory with `.test.ts` files. Tests:
+1. Clean up orphaned test modules and game servers from previous runs
+2. Create an authenticated API client and start a mock game server
+3. Push the module to Takaro and install it
+4. Trigger commands/hooks via the API or console commands
+5. Poll for `command-executed` / `hook-executed` events
+6. Assert success, then clean up (uninstall module, delete module, delete game server, stop mock server)
+
+Test helpers live in `test/helpers/`:
+- `client.ts` — Authenticated Takaro API client (singleton)
+- `mock-server.ts` — Start/stop mock game server with connected players
+- `events.ts` — Poll event search API with timeout
+- `modules.ts` — Push/install/uninstall/delete modules, cleanup orphans (`cleanupTestModules`, `cleanupTestGameServers`)
+
+### Manual test loop (for debugging or ad-hoc verification)
 
 1. **Ensure services are running**: `docker compose up -d paper bot`
 2. **Create a test bot**: `curl -X POST http://localhost:3101/bots -H 'Content-Type: application/json' -d '{"name":"tester"}'`

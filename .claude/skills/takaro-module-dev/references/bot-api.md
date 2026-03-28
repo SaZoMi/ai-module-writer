@@ -1,6 +1,6 @@
-# Bot Service API Reference
+# Bot API Reference
 
-HTTP-controlled Mineflayer bot service for in-game testing. Bots are created and destroyed on demand.
+The bot service runs on port 3101 and provides an HTTP API for creating and controlling Minecraft player bots for testing.
 
 **Base URL**: `http://localhost:3101`
 
@@ -11,9 +11,9 @@ All POST endpoints require `Content-Type: application/json` header.
 ### Create a bot
 ```
 POST /bots
-{"name": "player1"}
+{"name": "tester"}
 ```
-Returns: `{created: "player1", username: "Bot_player1"}`
+Returns: `{created: "tester", username: "Bot_tester"}`
 
 Bot usernames follow the pattern `Bot_<name>`. The combined username must not exceed 16 characters (Minecraft limit), so bot names can be at most 12 characters.
 
@@ -21,12 +21,18 @@ Bot usernames follow the pattern `Bot_<name>`. The combined username must not ex
 ```
 DELETE /bots/:name
 ```
+Returns: `204 No Content`
 
 ### Status (all bots)
 ```
 GET /status
 ```
 Returns status of all active bots including: connected, name, username, health, food, position, gameMode. Returns `{}` when no bots exist.
+
+### List all bots
+```
+GET /bots
+```
 
 ## Per-Bot Actions
 
@@ -35,7 +41,7 @@ Returns status of all active bots including: connected, name, username, health, 
 POST /bot/:name/chat
 {"message": "+ping"}
 ```
-Use the correct command prefix (typically `+`).
+Use the correct command prefix (fetch from settings API — typically `+` or `/`).
 
 ### Move to coordinates
 ```
@@ -98,8 +104,30 @@ GET /bot/:name/inventory
 ```
 Returns: `[{name, count, slot, displayName}, ...]`
 
+## Usage Example
+
+```bash
+# Create a bot
+curl -X POST http://localhost:3101/bots \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"tester"}'
+
+# Wait for connection
+sleep 5
+curl http://localhost:3101/status
+
+# Trigger a command
+curl -X POST http://localhost:3101/bot/tester/chat \
+  -H 'Content-Type: application/json' \
+  -d '{"message":"/greet World"}'
+
+# Clean up
+curl -X DELETE http://localhost:3101/bots/tester
+```
+
 ## Troubleshooting
 
 - If a bot returns 503, the Minecraft server is likely still starting — wait and retry
 - Bots auto-reconnect after server restarts with exponential backoff (5s to 60s)
 - If the bot can't connect, check `docker compose logs bot` and `docker compose logs paper`
+- For automated tests, prefer the mock game server approach (see `test/helpers/mock-server.ts`) which doesn't require a real Minecraft server

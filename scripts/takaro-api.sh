@@ -50,7 +50,9 @@ elif [[ -n "$BODY_ARG" ]]; then
 fi
 
 cleanup() {
-  [[ -n "$CLEANUP_BODY" ]] && rm -f "$CLEANUP_BODY"
+  if [[ -n "$CLEANUP_BODY" ]]; then
+    rm -f "$CLEANUP_BODY"
+  fi
 }
 trap cleanup EXIT
 
@@ -90,8 +92,10 @@ fi
 
 if [[ "$HTTP_CODE" -ge 400 ]]; then
   echo "ERROR: HTTP $HTTP_CODE" >&2
-  echo "$RESP_BODY" | jq . 2>/dev/null || echo "$RESP_BODY" >&2
+  # Use a subshell so jq failure doesn't propagate with set -e
+  (echo "$RESP_BODY" | jq . 2>/dev/null >&2) || echo "$RESP_BODY" >&2
   exit 1
 fi
 
-echo "$RESP_BODY" | jq . 2>/dev/null || echo "$RESP_BODY"
+# Pretty-print with jq; fall back to raw output if jq fails (e.g. large nested JSON)
+(echo "$RESP_BODY" | jq . 2>/dev/null) || echo "$RESP_BODY"

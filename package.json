@@ -1,0 +1,30 @@
+{
+  "name": "takaro-module-writer",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "pretest": "npm run build",
+    "test": "T_WS_CONTINUOUS_RECONNECT=false LOGGING_LEVEL=warn node --test-concurrency 1 --import=ts-node-maintained/register/esm --test 'modules/*/test/*.test.ts'",
+    "typecheck": "tsc --noEmit",
+    "module:to-json": "node dist/scripts/module-to-json.js",
+    "module:from-json": "node dist/scripts/json-to-module.js"
+  },
+  "dependencies": {
+    "@takaro/apiclient": "0.4.17",
+    "@takaro/config": "^0.4.17",
+    "@takaro/db": "^0.4.17",
+    "@takaro/gameserver": "^0.4.17",
+    "@takaro/http": "^0.4.17",
+    "@takaro/mock-gameserver": "0.4.17",
+    "@takaro/modules": "^0.4.17",
+    "@takaro/util": "^0.4.17",
+    "dotenv": "^16.4.0",
+    "pg": "^8.20.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "ts-node-maintained": "^10.9.6",
+    "typescript": "~5.5.4"
+  }
+}
