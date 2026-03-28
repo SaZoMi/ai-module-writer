@@ -1,0 +1,6 @@
+{
+  "name": "test-kill-tracker",
+  "description": "Kill/Death Tracker — tracks player kills, deaths, and points with streaks, leaderboards, and seasonal resets.",
+  "version": "latest",
+  "supportedGames": ["all"]
+}

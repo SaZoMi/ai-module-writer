@@ -1,0 +1,14 @@
+{
+  "trigger": "resetstats",
+  "description": "Reset kill stats (admin only)",
+  "helpText": "Admin command. Use /resetstats all to reset ALL stats and start a new season. Use /resetstats <player> to reset only that player's stats.",
+  "arguments": [
+    {
+      "name": "player",
+      "type": "string",
+      "helpText": "Player name to reset, or 'all' to reset all stats and start a new season.",
+      "position": 0,
+      "defaultValue": "?"
+    }
+  ]
+}
