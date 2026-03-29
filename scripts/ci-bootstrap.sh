@@ -90,9 +90,13 @@ wait_healthy "http://localhost:4433/health/ready" 60
 
 # ── Step 4: Run Takaro API DB migrations ─────────────────────────────────────
 
-echo "Starting takaro_api for DB migrations..."
+echo "Running Takaro API DB migrations..."
+docker compose -f "${COMPOSE_FILE}" run --rm takaro_api npm -w packages/app-api run db:migrate
+
+echo "Starting takaro_api..."
 docker compose -f "${COMPOSE_FILE}" up -d takaro_api
 
+echo "Waiting for takaro_api to be healthy..."
 wait_healthy "http://localhost:13000/healthz" 90
 
 # ── Step 5: Start remaining services ─────────────────────────────────────────
