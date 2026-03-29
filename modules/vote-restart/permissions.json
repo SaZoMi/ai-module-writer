@@ -1,0 +1,14 @@
+[
+  {
+    "permission": "VOTE_RESTART_INITIATE",
+    "friendlyName": "Initiate Restart Vote",
+    "description": "Allows a player to start a server restart vote with /voterestart",
+    "canHaveCount": false
+  },
+  {
+    "permission": "VOTE_RESTART_IMMUNE",
+    "friendlyName": "Immune to Restart Vote",
+    "description": "Excludes a player from the voter pool and denominator for restart votes",
+    "canHaveCount": false
+  }
+]

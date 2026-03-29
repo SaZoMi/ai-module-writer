@@ -1,0 +1,4 @@
+{
+  "temporalValue": "*/1 * * * *",
+  "description": "Evaluate vote state every minute: check expiry, tally effective votes, and execute restart when delay elapsed"
+}
