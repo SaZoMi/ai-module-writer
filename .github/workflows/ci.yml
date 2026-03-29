@@ -22,21 +22,16 @@ jobs:
           node-version: "22"
           cache: "npm"
 
-      - name: Configure AWS credentials for CodeArtifact
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ECR_CI_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_ECR_CI_SECRET_ACCESS_KEY }}
-          aws-region: eu-west-3
-
-      - name: Authenticate with CodeArtifact
+      - name: Login to CodeArtifact
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_CODEARTIFACT_CI_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_CODEARTIFACT_CI_SECRET_ACCESS_KEY }}
         run: |
-          aws codeartifact login \
-            --tool npm \
-            --domain takaro \
-            --domain-owner $(echo "${{ secrets.AWS_ECR_REGISTRY }}" | cut -d. -f1) \
-            --repository takaro-private \
-            --region eu-west-3
+          TOKEN=$(aws codeartifact get-authorization-token \
+            --domain takaro --domain-owner 967985385710 \
+            --region eu-west-3 --query authorizationToken --output text)
+          REGISTRY=takaro-967985385710.d.codeartifact.eu-west-3.amazonaws.com
+          npm config set //${REGISTRY}/npm/takaro-private/:_authToken=$TOKEN
 
       - name: Install dependencies
         run: npm ci --legacy-peer-deps
@@ -61,35 +56,31 @@ jobs:
           node-version: "22"
           cache: "npm"
 
-      - name: Configure AWS credentials for CodeArtifact
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ECR_CI_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_ECR_CI_SECRET_ACCESS_KEY }}
-          aws-region: eu-west-3
-
-      - name: Authenticate with CodeArtifact
+      - name: Login to CodeArtifact
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_CODEARTIFACT_CI_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_CODEARTIFACT_CI_SECRET_ACCESS_KEY }}
         run: |
-          aws codeartifact login \
-            --tool npm \
-            --domain takaro \
-            --domain-owner $(echo "${{ secrets.AWS_ECR_REGISTRY }}" | cut -d. -f1) \
-            --repository takaro-private \
-            --region eu-west-3
+          TOKEN=$(aws codeartifact get-authorization-token \
+            --domain takaro --domain-owner 967985385710 \
+            --region eu-west-3 --query authorizationToken --output text)
+          REGISTRY=takaro-967985385710.d.codeartifact.eu-west-3.amazonaws.com
+          npm config set //${REGISTRY}/npm/takaro-private/:_authToken=$TOKEN
 
       - name: Install dependencies
         run: npm ci --legacy-peer-deps
 
-      - name: Login to Amazon ECR
-        uses: aws-actions/amazon-ecr-login@v2
+      - name: Login to ECR
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ECR_CI_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_ECR_CI_SECRET_ACCESS_KEY }}
-          AWS_REGION: eu-west-3
+        run: |
+          aws ecr get-login-password --region eu-west-3 \
+            | docker login --username AWS --password-stdin 967985385710.dkr.ecr.eu-west-3.amazonaws.com
 
       - name: Bootstrap Takaro stack
         env:
-          AWS_ECR_REGISTRY: ${{ secrets.AWS_ECR_REGISTRY }}
+          AWS_ECR_REGISTRY: 967985385710.dkr.ecr.eu-west-3.amazonaws.com
         run: bash scripts/ci-bootstrap.sh
 
       - name: Run tests
