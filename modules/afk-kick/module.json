@@ -2,5 +2,63 @@
   "name": "test-afk-kick",
   "description": "AFK Kick — periodically checks player positions and warns/kicks idle players. A permission exempts specific players from AFK detection.",
   "version": "latest",
-  "supportedGames": ["all"]
+  "supportedGames": [
+    "all"
+  ],
+  "config": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "properties": {
+      "checksBeforeWarning": {
+        "type": "number",
+        "default": 3,
+        "minimum": 1,
+        "description": "Number of idle checks before sending a warning PM to the player"
+      },
+      "checksBeforeKick": {
+        "type": "number",
+        "default": 5,
+        "minimum": 2,
+        "description": "Number of idle checks before kicking the player"
+      },
+      "warningMessage": {
+        "type": "string",
+        "default": "You will be kicked for being AFK!",
+        "description": "Private message sent to the player when they reach the warning threshold"
+      },
+      "kickMessage": {
+        "type": "string",
+        "default": "Kicked for being AFK",
+        "description": "Kick reason shown to the player when they are kicked for being AFK"
+      },
+      "positionThreshold": {
+        "type": "number",
+        "default": 5,
+        "minimum": 1,
+        "description": "Distance in blocks a player must move to be considered active (resets idle count)"
+      }
+    },
+    "required": [],
+    "additionalProperties": false
+  },
+  "permissions": [
+    {
+      "permission": "IMMUNE_TO_AFK_KICK",
+      "friendlyName": "Immune to AFK Kick",
+      "description": "Exempts a player from AFK detection and kick entirely",
+      "canHaveCount": false
+    }
+  ],
+  "cronJobs": {
+    "check-afk": {
+      "temporalValue": "*/1 * * * *",
+      "description": "Check online players for AFK and warn/kick based on configured thresholds",
+      "function": "src/cronjobs/check-afk/index.js"
+    }
+  },
+  "functions": {
+    "afk-helpers": {
+      "function": "src/functions/afk-helpers.js"
+    }
+  }
 }

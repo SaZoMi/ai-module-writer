@@ -1,6 +1,0 @@
-{
-  "trigger": "votestatus",
-  "helpText": "Check the current status of the restart vote.",
-  "description": "Shows whether a restart vote is active, passed, or not running.",
-  "arguments": []
-}

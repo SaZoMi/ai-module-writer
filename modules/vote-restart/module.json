@@ -2,5 +2,100 @@
   "name": "test-vote-restart",
   "description": "Vote Restart — players vote democratically to restart the server. Dynamic threshold based on online non-immune players.",
   "version": "latest",
-  "supportedGames": ["all"]
+  "supportedGames": [
+    "all"
+  ],
+  "config": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "properties": {
+      "voteDuration": {
+        "type": "number",
+        "default": 300,
+        "minimum": 10,
+        "description": "How long the voting window stays open in seconds"
+      },
+      "cooldownDuration": {
+        "type": "number",
+        "default": 600,
+        "minimum": 0,
+        "description": "Cooldown period in seconds after a failed/expired vote before a new one can start"
+      },
+      "restartDelay": {
+        "type": "number",
+        "default": 30,
+        "minimum": 0,
+        "description": "Delay in seconds after vote passes before the restart command is executed"
+      },
+      "restartCommand": {
+        "type": "string",
+        "default": "stop",
+        "description": "Raw game server command to execute when restart is triggered"
+      },
+      "passThreshold": {
+        "type": "number",
+        "default": 51,
+        "minimum": 1,
+        "maximum": 100,
+        "description": "Percentage of online non-immune players needed to pass the vote"
+      },
+      "minimumPlayers": {
+        "type": "number",
+        "default": 2,
+        "minimum": 1,
+        "description": "Minimum number of online non-immune players required to start a vote"
+      }
+    },
+    "required": [],
+    "additionalProperties": false
+  },
+  "permissions": [
+    {
+      "permission": "VOTE_RESTART_INITIATE",
+      "friendlyName": "Initiate Restart Vote",
+      "description": "Allows a player to start a server restart vote with /voterestart",
+      "canHaveCount": false
+    },
+    {
+      "permission": "VOTE_RESTART_IMMUNE",
+      "friendlyName": "Immune to Restart Vote",
+      "description": "Excludes a player from the voter pool and denominator for restart votes",
+      "canHaveCount": false
+    }
+  ],
+  "commands": {
+    "voterestart": {
+      "trigger": "voterestart",
+      "description": "Start a vote to restart the server",
+      "helpText": "Start a democratic vote to restart the server. Requires the VOTE_RESTART_INITIATE permission.",
+      "function": "src/commands/voterestart/index.js",
+      "arguments": []
+    },
+    "votestatus": {
+      "trigger": "votestatus",
+      "description": "Shows whether a restart vote is active, passed, or not running.",
+      "helpText": "Check the current status of the restart vote.",
+      "function": "src/commands/votestatus/index.js",
+      "arguments": []
+    },
+    "voteyes": {
+      "trigger": "voteyes",
+      "description": "Cast a yes vote for the current restart vote",
+      "helpText": "Vote yes for an ongoing server restart vote. No special permission required.",
+      "function": "src/commands/voteyes/index.js",
+      "arguments": []
+    }
+  },
+  "cronJobs": {
+    "check-vote": {
+      "temporalValue": "*/1 * * * *",
+      "description": "Evaluate vote state every minute: check expiry, tally effective votes, and execute restart when delay elapsed",
+      "function": "src/cronjobs/check-vote/index.js"
+    }
+  },
+  "functions": {
+    "vote-helpers": {
+      "function": "src/functions/vote-helpers.js"
+    }
+  }
 }
