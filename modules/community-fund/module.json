@@ -2,5 +2,94 @@
   "name": "test-community-fund",
   "description": "Community Fund — players contribute currency toward a shared goal. When the threshold is reached the fund resets and completion commands fire.",
   "version": "latest",
-  "supportedGames": ["all"]
+  "supportedGames": [
+    "all"
+  ],
+  "config": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "properties": {
+      "fundThreshold": {
+        "type": "number",
+        "default": 1000000,
+        "minimum": 1,
+        "description": "Target amount that triggers fund completion and reset"
+      },
+      "minimumContribution": {
+        "type": "number",
+        "default": 1,
+        "minimum": 1,
+        "description": "Minimum amount a player must contribute per command"
+      },
+      "completionMessage": {
+        "type": "string",
+        "default": "The community fund has reached {threshold}! Thank you everyone!",
+        "description": "Broadcast message when threshold is reached. Supports {threshold} placeholder."
+      },
+      "completionCommands": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "default": [],
+        "description": "Raw game server commands executed on fund completion. E.g. Minecraft: 'effect give @a luck 3600'"
+      },
+      "broadcastContributions": {
+        "type": "boolean",
+        "default": true,
+        "description": "Whether to broadcast each contribution to all players"
+      }
+    },
+    "required": [],
+    "additionalProperties": false
+  },
+  "permissions": [
+    {
+      "permission": "COMMUNITY_FUND_CONTRIBUTE",
+      "friendlyName": "Contribute to Fund",
+      "description": "Allows a player to contribute currency to the community fund",
+      "canHaveCount": false
+    },
+    {
+      "permission": "COMMUNITY_FUND_VIEW_HISTORY",
+      "friendlyName": "View Fund History",
+      "description": "Allows a player to view the community fund completion history",
+      "canHaveCount": false
+    }
+  ],
+  "commands": {
+    "fund-contribute": {
+      "trigger": "fund",
+      "description": "Contribute currency to the community fund",
+      "helpText": "Contribute currency to the community fund. Amount must be a positive whole number.",
+      "function": "src/commands/fund-contribute/index.js",
+      "arguments": [
+        {
+          "name": "amount",
+          "type": "number",
+          "helpText": "The amount of currency to contribute",
+          "position": 0
+        }
+      ]
+    },
+    "fund-history": {
+      "trigger": "fundhistory",
+      "description": "View the community fund completion history",
+      "helpText": "Shows the number of community fund completions and the last completion details.",
+      "function": "src/commands/fund-history/index.js",
+      "arguments": []
+    },
+    "fund-status": {
+      "trigger": "fundstatus",
+      "description": "Check the current community fund status",
+      "helpText": "Shows the current community fund total, target, and round count.",
+      "function": "src/commands/fund-status/index.js",
+      "arguments": []
+    }
+  },
+  "functions": {
+    "fund-helpers": {
+      "function": "src/functions/fund-helpers.js"
+    }
+  }
 }

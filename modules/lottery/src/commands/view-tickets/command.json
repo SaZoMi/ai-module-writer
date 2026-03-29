@@ -1,6 +1,0 @@
-{
-  "trigger": "viewtickets",
-  "description": "View your current lottery ticket count",
-  "helpText": "Shows how many tickets you currently hold for the upcoming draw.",
-  "arguments": []
-}

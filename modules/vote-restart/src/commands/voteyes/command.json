@@ -1,6 +1,0 @@
-{
-  "trigger": "voteyes",
-  "description": "Cast a yes vote for the current restart vote",
-  "helpText": "Vote yes for an ongoing server restart vote. No special permission required.",
-  "arguments": []
-}

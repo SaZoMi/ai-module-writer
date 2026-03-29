@@ -1,6 +1,0 @@
-{
-  "trigger": "nextdraw",
-  "description": "See when the next lottery draw is",
-  "helpText": "Shows how long until the next lottery draw at midnight UTC.",
-  "arguments": []
-}

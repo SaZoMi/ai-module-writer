@@ -2,5 +2,31 @@
   "name": "test-hello-world",
   "description": "A simple hello world module for testing",
   "version": "latest",
-  "supportedGames": ["all"]
+  "supportedGames": [
+    "all"
+  ],
+  "commands": {
+    "greet": {
+      "trigger": "greet",
+      "description": "Greet a player by name",
+      "helpText": "Usage: /greet [name] — Greets you or the specified name",
+      "function": "src/commands/greet/index.js",
+      "arguments": [
+        {
+          "name": "name",
+          "type": "string",
+          "defaultValue": "World",
+          "helpText": "The name to greet",
+          "position": 0
+        }
+      ]
+    }
+  },
+  "hooks": {
+    "on-join": {
+      "eventType": "player-connected",
+      "description": "Welcome a player when they join the server",
+      "function": "src/hooks/on-join/index.js"
+    }
+  }
 }

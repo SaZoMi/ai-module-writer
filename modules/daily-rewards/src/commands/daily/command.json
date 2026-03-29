@@ -1,6 +1,0 @@
-{
-  "trigger": "daily",
-  "description": "Claim your daily login reward",
-  "helpText": "Claim your daily reward. Rewards increase with your streak! Use /streak to view your streak info.",
-  "arguments": []
-}

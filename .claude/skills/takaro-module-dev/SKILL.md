@@ -134,16 +134,19 @@ The `data` object contents vary by component type:
 
 Modules can define permissions that admins assign to roles. Permissions are NOT automatically enforced — you must check them in your command/hook code.
 
-**Defining permissions** — Create `permissions.json` in the module root:
+**Defining permissions** — Add a `permissions` array directly in `module.json`:
 ```json
-[
-  {
-    "permission": "MY_MODULE_DO_THING",
-    "friendlyName": "Do the Thing",
-    "description": "Allows a player to do the thing",
-    "canHaveCount": false
-  }
-]
+{
+  "name": "my-module",
+  "permissions": [
+    {
+      "permission": "MY_MODULE_DO_THING",
+      "friendlyName": "Do the Thing",
+      "description": "Allows a player to do the thing",
+      "canHaveCount": false
+    }
+  ]
+}
 ```
 
 **Enforcing permissions in code** — Use `checkPermission` from `@takaro/helpers`:
@@ -168,27 +171,88 @@ All module code lives locally in the `modules/` directory. Each module is a fold
 ```
 modules/
   my-module/
-    module.json              # Name, author, description, version, supportedGames
-    config.json              # Configuration schema (JSON Schema draft-07)
-    permissions.json         # Permission definitions (optional)
+    module.json              # THE ONE FILE — all metadata (name, config, permissions, commands, hooks, cronJobs, functions)
     src/                     # Source code lives under src/
       commands/
         command-name/
           index.js           # Command code (JavaScript, executed server-side by Takaro)
-          command.json       # trigger, description, helpText, arguments
       hooks/
         hook-name/
           index.js           # Hook code
-          hook.json          # eventType, description, regex
       cronjobs/
         cronjob-name/
           index.js           # Cronjob code
-          cronjob.json       # temporalValue, description
       functions/
         shared-util.js       # Shared function code (filename = function name)
     test/                    # Automated tests (TypeScript)
       my-command.test.ts     # Tests for commands
       my-hook.test.ts        # Tests for hooks
+```
+
+All metadata — config schema, permissions, command definitions, hook definitions, cronjob definitions, and function references — lives in a single `module.json` file. There are no more `config.json`, `permissions.json`, `command.json`, `hook.json`, or `cronjob.json` files.
+
+**Example `module.json`:**
+
+```json
+{
+  "name": "my-module",
+  "description": "Does something useful",
+  "version": "latest",
+  "supportedGames": ["all"],
+
+  "config": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "properties": {
+      "cooldown": { "type": "number", "default": 60, "description": "Cooldown in seconds" }
+    },
+    "required": [],
+    "additionalProperties": false
+  },
+
+  "uiSchema": {},
+
+  "permissions": [
+    {
+      "permission": "MY_MODULE_ACTION",
+      "friendlyName": "Do the Action",
+      "description": "Allows a player to do the action",
+      "canHaveCount": false
+    }
+  ],
+
+  "commands": {
+    "my-command": {
+      "trigger": "mycommand",
+      "description": "Do the thing",
+      "helpText": "Usage: /mycommand",
+      "function": "src/commands/my-command/index.js",
+      "arguments": []
+    }
+  },
+
+  "hooks": {
+    "on-event": {
+      "eventType": "player-connected",
+      "description": "React to player joining",
+      "function": "src/hooks/on-event/index.js"
+    }
+  },
+
+  "cronJobs": {
+    "hourly-check": {
+      "temporalValue": "0 * * * *",
+      "description": "Run every hour",
+      "function": "src/cronjobs/hourly-check/index.js"
+    }
+  },
+
+  "functions": {
+    "helpers": {
+      "function": "src/functions/helpers.js"
+    }
+  }
+}
 ```
 
 Module source code (`index.js` files inside `src/`) stays JavaScript because Takaro executes it server-side. All test helpers and test files are TypeScript.
