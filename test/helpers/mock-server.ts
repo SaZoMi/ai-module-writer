@@ -161,5 +161,11 @@ export async function stopMockServer(
   // Disconnect Redis clients opened by the mock server's GameDataHandler.
   // Without this, open Redis connections keep the Node.js event loop alive
   // and the test process never exits.
-  await withTimeout(Redis.destroy(), 3000);
+  // Guard with try/catch: when multiple describe blocks each call stopMockServer,
+  // the second+ calls may attempt to disconnect already-closed clients.
+  try {
+    await withTimeout(Redis.destroy(), 3000);
+  } catch (redisErr) {
+    console.error('stopMockServer: Redis.destroy() failed (safe to ignore if client already closed):', redisErr);
+  }
 }

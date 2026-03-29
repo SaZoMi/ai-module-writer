@@ -1,0 +1,44 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "voteDuration": {
+      "type": "number",
+      "default": 300,
+      "minimum": 10,
+      "description": "How long the voting window stays open in seconds"
+    },
+    "cooldownDuration": {
+      "type": "number",
+      "default": 600,
+      "minimum": 0,
+      "description": "Cooldown period in seconds after a failed/expired vote before a new one can start"
+    },
+    "restartDelay": {
+      "type": "number",
+      "default": 30,
+      "minimum": 0,
+      "description": "Delay in seconds after vote passes before the restart command is executed"
+    },
+    "restartCommand": {
+      "type": "string",
+      "default": "stop",
+      "description": "Raw game server command to execute when restart is triggered"
+    },
+    "passThreshold": {
+      "type": "number",
+      "default": 51,
+      "minimum": 1,
+      "maximum": 100,
+      "description": "Percentage of online non-immune players needed to pass the vote"
+    },
+    "minimumPlayers": {
+      "type": "number",
+      "default": 2,
+      "minimum": 1,
+      "description": "Minimum number of online non-immune players required to start a vote"
+    }
+  },
+  "required": [],
+  "additionalProperties": false
+}

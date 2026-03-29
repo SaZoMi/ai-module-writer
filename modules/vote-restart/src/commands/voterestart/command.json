@@ -1,0 +1,6 @@
+{
+  "trigger": "voterestart",
+  "description": "Start a vote to restart the server",
+  "helpText": "Start a democratic vote to restart the server. Requires the VOTE_RESTART_INITIATE permission.",
+  "arguments": []
+}
