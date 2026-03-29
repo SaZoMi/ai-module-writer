@@ -24,8 +24,8 @@ jobs:
 
       - name: Login to CodeArtifact
         env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_CODEARTIFACT_CI_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_CODEARTIFACT_CI_SECRET_ACCESS_KEY }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_CODEARTIFACT_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_CODEARTIFACT_SECRET_ACCESS_KEY }}
         run: |
           TOKEN=$(aws codeartifact get-authorization-token \
             --domain takaro --domain-owner 967985385710 \
@@ -58,8 +58,8 @@ jobs:
 
       - name: Login to CodeArtifact
         env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_CODEARTIFACT_CI_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_CODEARTIFACT_CI_SECRET_ACCESS_KEY }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_CODEARTIFACT_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_CODEARTIFACT_SECRET_ACCESS_KEY }}
         run: |
           TOKEN=$(aws codeartifact get-authorization-token \
             --domain takaro --domain-owner 967985385710 \
