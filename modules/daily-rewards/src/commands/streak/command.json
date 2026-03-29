@@ -1,0 +1,6 @@
+{
+  "trigger": "streak",
+  "description": "View your current daily reward streak",
+  "helpText": "View your daily reward streak, best streak, total claimed, and when your next claim is available.",
+  "arguments": []
+}

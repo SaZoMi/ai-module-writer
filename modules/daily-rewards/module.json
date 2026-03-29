@@ -1,0 +1,6 @@
+{
+  "name": "test-daily-rewards",
+  "description": "Daily login reward system with streak tracking, milestone bonuses, and role-based multipliers.",
+  "version": "latest",
+  "supportedGames": ["all"]
+}

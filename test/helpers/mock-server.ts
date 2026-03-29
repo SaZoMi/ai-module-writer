@@ -42,6 +42,10 @@ export async function startMockServer(client: Client): Promise<MockServerContext
 
   const identityToken = `test-${randomUUID()}`;
 
+  const population = {
+    totalPlayers: 3,
+  };
+
   const server = await getMockServer({
     mockserver: {
       registrationToken,
@@ -54,9 +58,7 @@ export async function startMockServer(client: Client): Promise<MockServerContext
     simulation: {
       autoStart: false,
     },
-    population: {
-      totalPlayers: 3,
-    },
+    population,
   });
 
   // Discover the game server in Takaro by identityToken
@@ -87,7 +89,7 @@ export async function startMockServer(client: Client): Promise<MockServerContext
         },
       });
       const found = result.data.data;
-      if (found.length === 0) throw new Error('No players online yet');
+      if (found.length < population.totalPlayers) throw new Error(`Waiting for ${population.totalPlayers} players to be online, only ${found.length} found so far`);
       return found;
     },
     20,
@@ -98,12 +100,56 @@ export async function startMockServer(client: Client): Promise<MockServerContext
   return { server, gameServer, players, identityToken };
 }
 
+type WsClient = {
+  ws: { terminate: () => void; close: () => void; on: (event: string, fn: () => void) => void } | null;
+  reconnectTimeout: ReturnType<typeof setTimeout> | null;
+  pingTimeout: ReturnType<typeof setTimeout> | null;
+  scheduleReconnect: () => void;
+  connect: () => void;
+};
+
+function forceStopWsClient(wsClient: WsClient): void {
+  // Disable reconnect and ping loop so timers don't keep the event loop alive.
+  wsClient.scheduleReconnect = () => {};
+  wsClient.connect = () => {};
+  if (wsClient.pingTimeout) {
+    clearTimeout(wsClient.pingTimeout);
+    wsClient.pingTimeout = null;
+  }
+  if (wsClient.reconnectTimeout) {
+    clearTimeout(wsClient.reconnectTimeout);
+    wsClient.reconnectTimeout = null;
+  }
+  if (wsClient.ws) {
+    try { wsClient.ws.terminate(); } catch (terminateErr) { console.error('forceStopWsClient: ws.terminate() failed (safe to ignore):', terminateErr); }
+    wsClient.ws = null;
+  }
+}
+
 export async function stopMockServer(
   server: MockGameServer,
   client?: Client,
   gameServerId?: string,
 ): Promise<void> {
-  await server.shutdown();
+  const withTimeout = <T>(promise: Promise<T>, ms: number): Promise<T | void> =>
+    Promise.race([promise, new Promise<void>((resolve) => setTimeout(resolve, ms))]);
+
+  // Disable the wsClient's reconnect loop BEFORE calling shutdown/disconnect.
+  // This prevents the ws.close() close-event from triggering new reconnect timers
+  // that would keep the Node.js event loop alive after tests complete.
+  try {
+    // Fragile: accesses wsClient via `as unknown as` cast because the mock server
+    // type does not expose it publicly. If the mock-server library changes its
+    // internal structure this cast will silently break. Acceptable trade-off since
+    // the worst outcome is lingering timers that delay test exit (not a correctness bug).
+    const wsClient = (server as unknown as { wsClient: WsClient }).wsClient;
+    if (wsClient) forceStopWsClient(wsClient);
+  } catch (err) {
+    console.error('stopMockServer: failed to disable wsClient reconnect:', err);
+  }
+
+  await withTimeout(server.shutdown(), 2000);
+
   // Delete the game server record from Takaro to prevent orphan accumulation
   if (client && gameServerId) {
     try {
@@ -115,5 +161,5 @@ export async function stopMockServer(
   // Disconnect Redis clients opened by the mock server's GameDataHandler.
   // Without this, open Redis connections keep the Node.js event loop alive
   // and the test process never exits.
-  await Redis.destroy();
+  await withTimeout(Redis.destroy(), 3000);
 }
