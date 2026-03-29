@@ -1,0 +1,13 @@
+{
+  "trigger": "buyticket",
+  "description": "Buy lottery tickets",
+  "helpText": "Buy one or more lottery tickets for the current draw. Usage: buyticket <amount>",
+  "arguments": [
+    {
+      "name": "amount",
+      "type": "number",
+      "helpText": "Number of tickets to buy",
+      "position": 0
+    }
+  ]
+}

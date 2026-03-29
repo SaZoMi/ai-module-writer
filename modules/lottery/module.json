@@ -1,0 +1,6 @@
+{
+  "name": "test-lottery",
+  "description": "Lottery — players buy tickets with in-game currency and a daily draw picks a weighted random winner. Prize pool grows with each ticket purchase.",
+  "version": "latest",
+  "supportedGames": ["all"]
+}

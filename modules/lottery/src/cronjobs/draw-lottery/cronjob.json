@@ -1,0 +1,4 @@
+{
+  "temporalValue": "0 0 * * *",
+  "description": "Daily lottery draw at midnight UTC — picks a weighted random winner from ticket holders"
+}

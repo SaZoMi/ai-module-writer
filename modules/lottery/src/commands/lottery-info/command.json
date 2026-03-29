@@ -1,0 +1,6 @@
+{
+  "trigger": "lotteryinfo",
+  "description": "View current lottery status",
+  "helpText": "Shows the current pot, participant count, total tickets, and ticket price for the upcoming draw.",
+  "arguments": []
+}
