@@ -1,0 +1,14 @@
+[
+  {
+    "permission": "DAILY_CLAIM",
+    "friendlyName": "Claim Daily Reward",
+    "description": "Allows a player to claim their daily login reward",
+    "canHaveCount": false
+  },
+  {
+    "permission": "DAILY_REWARD_MULTIPLIER",
+    "friendlyName": "Daily Reward Multiplier",
+    "description": "Count = reward multiplier for this player (e.g. count=2 means 2x daily reward)",
+    "canHaveCount": true
+  }
+]
