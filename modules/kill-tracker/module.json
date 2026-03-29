@@ -2,5 +2,148 @@
   "name": "test-kill-tracker",
   "description": "Kill/Death Tracker — tracks player kills, deaths, and points with streaks, leaderboards, and seasonal resets.",
   "version": "latest",
-  "supportedGames": ["all"]
+  "supportedGames": [
+    "all"
+  ],
+  "config": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "properties": {
+      "pvpKillPoints": {
+        "type": "number",
+        "default": 10,
+        "minimum": 0,
+        "description": "Points awarded for killing another player"
+      },
+      "mobKillPoints": {
+        "type": "number",
+        "default": 1,
+        "minimum": 0,
+        "description": "Points awarded for killing a mob or entity"
+      },
+      "deathPenalty": {
+        "type": "number",
+        "default": 5,
+        "minimum": 0,
+        "description": "Points deducted on death (floored at 0)"
+      },
+      "streakBonusInterval": {
+        "type": "number",
+        "default": 5,
+        "minimum": 1,
+        "description": "Every N kills awards bonus points (see streakBonusPoints)"
+      },
+      "streakBonusPoints": {
+        "type": "number",
+        "default": 25,
+        "minimum": 0,
+        "description": "Bonus points awarded at each streak milestone"
+      },
+      "streakBroadcast": {
+        "type": "boolean",
+        "default": true,
+        "description": "Broadcast streak milestones to the server"
+      },
+      "streakResetOnDeath": {
+        "type": "boolean",
+        "default": true,
+        "description": "Reset current streak on death"
+      },
+      "awardCurrency": {
+        "type": "boolean",
+        "default": false,
+        "description": "Also grant Takaro currency equal to points earned"
+      },
+      "leaderboardPageSize": {
+        "type": "number",
+        "default": 10,
+        "minimum": 1,
+        "maximum": 25,
+        "description": "Number of players per leaderboard page"
+      },
+      "killBroadcast": {
+        "type": "boolean",
+        "default": false,
+        "description": "Broadcast PvP kills to the server (mob kills are not broadcast)"
+      }
+    },
+    "required": [],
+    "additionalProperties": false
+  },
+  "permissions": [
+    {
+      "permission": "KILL_TRACKER_VIEW_STATS",
+      "friendlyName": "View Kill Stats",
+      "description": "Allows a player to view kill stats and leaderboard",
+      "canHaveCount": false
+    },
+    {
+      "permission": "KILL_TRACKER_RESET",
+      "friendlyName": "Reset Kill Stats",
+      "description": "Allows an admin to reset kill stats for a player or all players",
+      "canHaveCount": false
+    },
+    {
+      "permission": "KILL_TRACKER_MULTIPLIER",
+      "friendlyName": "Point Multiplier",
+      "description": "Count = point multiplier for this player (e.g. count=2 means 2x points)",
+      "canHaveCount": true
+    }
+  ],
+  "commands": {
+    "leaderboard": {
+      "trigger": "top",
+      "description": "View the kill points leaderboard",
+      "helpText": "View the top players ranked by points. Use /top [page] to browse pages.",
+      "function": "src/commands/leaderboard/index.js",
+      "arguments": [
+        {
+          "name": "page",
+          "type": "number",
+          "helpText": "Page number (default: 1)",
+          "position": 0,
+          "defaultValue": "1"
+        }
+      ]
+    },
+    "resetstats": {
+      "trigger": "resetstats",
+      "description": "Reset kill stats (admin only)",
+      "helpText": "Admin command. Use /resetstats all to reset ALL stats and start a new season. Use /resetstats <player> to reset only that player's stats.",
+      "function": "src/commands/resetstats/index.js",
+      "arguments": [
+        {
+          "name": "player",
+          "type": "string",
+          "helpText": "Player name to reset, or 'all' to reset all stats and start a new season.",
+          "position": 0,
+          "defaultValue": "?"
+        }
+      ]
+    },
+    "stats": {
+      "trigger": "stats",
+      "description": "View your kill/death stats and rank",
+      "helpText": "View your personal kill stats, K/D ratio, points, streak, and current rank for the current season.",
+      "function": "src/commands/stats/index.js",
+      "arguments": []
+    }
+  },
+  "hooks": {
+    "on-death": {
+      "eventType": "player-death",
+      "description": "Track player deaths, apply death penalty, and attribute PvP kills to the attacker",
+      "function": "src/hooks/on-death/index.js"
+    },
+    "on-kill": {
+      "eventType": "entity-killed",
+      "description": "Track mob kills and award points when a player kills an entity",
+      "function": "src/hooks/on-kill/index.js"
+    }
+  },
+  "functions": {
+    "tracker-helpers": {
+      "function": "src/functions/tracker-helpers.js"
+    }
+  }
 }

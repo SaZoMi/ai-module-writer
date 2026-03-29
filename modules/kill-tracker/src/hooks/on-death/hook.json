@@ -1,4 +1,0 @@
-{
-  "eventType": "player-death",
-  "description": "Track player deaths, apply death penalty, and attribute PvP kills to the attacker"
-}

@@ -10,7 +10,7 @@ This document describes how to debug Takaro module execution failures.
 | Empty logs + `success: false` | Syntax error or runtime crash |
 | Populated logs + error | API call failed — check the error message |
 | No execution event at all | Module not installed, wrong command prefix, or wrong game server |
-| Hook never fires | Wrong `eventType` in hook.json, or module not installed on that game server |
+| Hook never fires | Wrong `eventType` in the `hooks` section of module.json, or module not installed on that game server |
 | Cronjob never fires | Wrong `temporalValue` cron expression, or module not installed |
 
 ## Step-by-Step Debugging
@@ -71,7 +71,7 @@ bash scripts/takaro-api.sh POST /module/installations/search '{
 ### 5. Check Takaro API errors
 
 If an API call inside your module fails, the error appears in `meta.result.logs` or `meta.result.error`. Common issues:
-- Insufficient permissions — check module `permissions.json`
+- Insufficient permissions — check the `permissions` section in module.json
 - Wrong parameter names — check the OpenAPI spec: `bash scripts/takaro-api.sh GET /openapi.json`
 - Player not found — ensure the player is online
 
@@ -101,9 +101,13 @@ const { player } = data;
 ### Wrong event type
 
 ```json
-// hook.json — check the exact event type strings in Takaro docs
+// module.json hooks section — check the exact event type strings in Takaro docs
 {
-  "eventType": "player-connected"  // not "playerConnected" or "PLAYER_CONNECTED"
+  "hooks": {
+    "my-hook": {
+      "eventType": "player-connected"  // not "playerConnected" or "PLAYER_CONNECTED"
+    }
+  }
 }
 ```
 

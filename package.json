@@ -8,7 +8,8 @@
     "test": "T_WS_CONTINUOUS_RECONNECT=false LOGGING_LEVEL=warn node --test-concurrency 1 --import=ts-node-maintained/register/esm --test 'modules/*/test/*.test.ts'",
     "typecheck": "tsc --noEmit",
     "module:to-json": "node dist/scripts/module-to-json.js",
-    "module:from-json": "node dist/scripts/json-to-module.js"
+    "module:from-json": "node dist/scripts/json-to-module.js",
+    "module:migrate": "node dist/scripts/migrate-module.js"
   },
   "dependencies": {
     "@takaro/apiclient": "0.4.17",

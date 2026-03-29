@@ -1,6 +1,0 @@
-{
-  "trigger": "stats",
-  "description": "View your kill/death stats and rank",
-  "helpText": "View your personal kill stats, K/D ratio, points, streak, and current rank for the current season.",
-  "arguments": []
-}

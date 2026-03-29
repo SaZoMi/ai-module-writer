@@ -68,11 +68,43 @@ export interface TakaroModuleExport {
   versions: ModuleVersion[];
 }
 
-/** module.json file format */
-export interface ModuleMeta {
+/** New consolidated module.json format — all metadata in one file */
+export interface LocalCommandDef {
+  trigger: string;
+  description?: string | null;
+  helpText?: string;
+  function: string;
+  arguments?: CommandArgument[];
+}
+
+export interface LocalHookDef {
+  eventType: string;
+  description?: string | null;
+  regex?: string | null;
+  function: string;
+}
+
+export interface LocalCronJobDef {
+  temporalValue: string;
+  description?: string | null;
+  function: string;
+}
+
+export interface LocalFunctionDef {
+  function: string;
+}
+
+export interface LocalModuleJson {
   name: string;
   author?: string;
   description?: string;
   version?: string;
   supportedGames?: string[];
+  config?: Record<string, unknown>;
+  uiSchema?: Record<string, unknown>;
+  permissions?: ModulePermission[];
+  commands?: Record<string, LocalCommandDef>;
+  hooks?: Record<string, LocalHookDef>;
+  cronJobs?: Record<string, LocalCronJobDef>;
+  functions?: Record<string, LocalFunctionDef>;
 }
