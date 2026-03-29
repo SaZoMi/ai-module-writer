@@ -22,6 +22,22 @@ jobs:
           node-version: "22"
           cache: "npm"
 
+      - name: Configure AWS credentials for CodeArtifact
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ECR_CI_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_ECR_CI_SECRET_ACCESS_KEY }}
+          aws-region: eu-west-3
+
+      - name: Authenticate with CodeArtifact
+        run: |
+          aws codeartifact login \
+            --tool npm \
+            --domain takaro \
+            --domain-owner $(echo "${{ secrets.AWS_ECR_REGISTRY }}" | cut -d. -f1) \
+            --repository takaro-private \
+            --region eu-west-3
+
       - name: Install dependencies
         run: npm ci --legacy-peer-deps
 
@@ -44,6 +60,22 @@ jobs:
         with:
           node-version: "22"
           cache: "npm"
+
+      - name: Configure AWS credentials for CodeArtifact
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ECR_CI_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_ECR_CI_SECRET_ACCESS_KEY }}
+          aws-region: eu-west-3
+
+      - name: Authenticate with CodeArtifact
+        run: |
+          aws codeartifact login \
+            --tool npm \
+            --domain takaro \
+            --domain-owner $(echo "${{ secrets.AWS_ECR_REGISTRY }}" | cut -d. -f1) \
+            --repository takaro-private \
+            --region eu-west-3
 
       - name: Install dependencies
         run: npm ci --legacy-peer-deps
