@@ -52,6 +52,18 @@ Module code lives locally in `modules/` as editable files, then gets pushed to T
 
 **Note**: `scripts/module-push.sh` and `scripts/module-pull.sh` call compiled JS from `dist/`. Always run `npm run build` before using these scripts after any changes to `src/`.
 
+### Testing Philosophy
+
+**All module tests MUST go through the real Takaro API.** Do not introduce mock-based unit tests, source-code string replacement, or `globalThis.__mocks` patterns. Tests should:
+
+1. Push the module to Takaro, install it on a game server, trigger cronjobs/commands/hooks via the API, and assert on real event metadata/logs.
+2. For negative assertions (e.g. "no message was sent"), check logs/events from the real execution rather than mocking internals.
+3. Accept that some edge cases (empty config, send failures) may only be testable via log inspection — that's fine. A real integration test that checks logs is worth more than a mocked unit test that proves nothing about the actual system.
+4. Follow the pattern in `modules/afk-kick/test/afk-kick.test.ts` — real client, real mock server, real API calls.
+
+**Why**: Mocked tests pass while the real system fails. The whole point of this test infrastructure is to catch integration issues (wrong API shapes, missing permissions, runtime errors in the Takaro function sandbox). Unit tests with mocked helpers bypass all of that.
+
+
 ## Available Tools
 
 - **`scripts/takaro-auth.sh`** — Authenticate with the Takaro API
