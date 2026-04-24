@@ -176,4 +176,11 @@ export async function stopMockServer(
   } catch (redisErr) {
     console.error('stopMockServer: Redis.destroy() failed (safe to ignore if client already closed):', redisErr);
   }
+  // Clear the internal client cache so subsequent getMockServer() calls reconnect Redis
+  // rather than returning already-disconnected clients from the singleton map.
+  try {
+    (Redis as unknown as { clients: Map<string, unknown> }).clients.clear();
+  } catch (clearErr) {
+    console.error('stopMockServer: Redis.clients.clear() failed (safe to ignore):', clearErr);
+  }
 }
