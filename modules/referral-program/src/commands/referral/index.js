@@ -172,21 +172,15 @@ async function main() {
   // Update referrer's stats atomically using retry-safe RMW (VI-2, VI-3).
   // The closure re-reads fresh state on each retry, preventing last-writer-wins overwrites
   // when multiple referees use the same referrer code concurrently.
-  try {
-    await updatePlayerStats(gameServerId, moduleId, referrerId, (current) => {
-      const currentTodayCount = current.lastReferralDay === today ? current.referralsToday : 0;
-      return {
-        ...current,
-        referralsTotal: current.referralsTotal + 1,
-        referralsToday: currentTodayCount + 1,
-        lastReferralDay: today,
-      };
-    });
-  } catch (err) {
-    // Stats update failed — link is already written, log and continue.
-    // The sweep will still process this referee correctly.
-    console.error(`referral: failed to update referrer stats for referrer=${referrerId}: ${err}`);
-  }
+  await updatePlayerStats(gameServerId, moduleId, referrerId, (current) => {
+    const currentTodayCount = current.lastReferralDay === today ? current.referralsToday : 0;
+    return {
+      ...current,
+      referralsTotal: current.referralsTotal + 1,
+      referralsToday: currentTodayCount + 1,
+      lastReferralDay: today,
+    };
+  });
 
   // Pay referee welcome bonus (always currency regardless of prizeIsCurrency setting)
   // Per spec: fail the command when the welcome bonus grant throws so the player knows
