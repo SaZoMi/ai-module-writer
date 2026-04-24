@@ -119,15 +119,23 @@ export async function setPlayerStats(gameServerId, moduleId, playerId, statsData
 }
 
 /**
- * Atomically apply a delta to player stats using a read-modify-write retry loop (VI-3, VI-7).
+ * Best-effort apply a delta to player stats using a read-modify-write retry loop.
  * The `applyDelta` function receives current stats and returns updated stats.
  * Retries up to maxRetries times ONLY on 409 Conflict (concurrent write).
  * 500 errors are NOT retried — they often indicate persistent server issues and
- * retrying just adds log noise (VI-7).
+ * retrying just adds log noise.
  *
- * Since writeVariable now lets 409 bubble up (VI-3), this retry loop sees conflicts
- * correctly and re-reads fresh state before re-applying the delta closure, preventing
- * last-writer-wins overwrites on concurrent stat updates.
+ * KNOWN LIMITATION: Takaro's variable store has no server-side CAS or atomic-increment
+ * primitive. variableControllerUpdate is a plain PUT by record ID and always returns 200,
+ * regardless of concurrent writers. This means HTTP 409 is NEVER emitted for concurrent
+ * same-row updates, so this retry loop cannot prevent last-writer-wins races when two
+ * callers concurrently update the same player's stats variable.
+ *
+ * Practical impact: referralsTotal and referralsToday may be undercounted in the rare
+ * case of two simultaneous /referral calls for the same referrer. These fields are
+ * display-only. The lifetime cap that actually gates payouts is enforced by referralsPaid,
+ * which is only incremented at payout time in _doPayReferral (re-read fresh before the
+ * cap check), so a lost referralsTotal increment does NOT cause over-payment.
  */
 export async function updatePlayerStats(gameServerId, moduleId, playerId, applyDelta, maxRetries = 5) {
   for (let attempt = 0; attempt <= maxRetries; attempt++) {

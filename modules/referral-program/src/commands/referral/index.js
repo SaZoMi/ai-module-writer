@@ -169,9 +169,12 @@ async function main() {
     retries: 0,
   });
 
-  // Update referrer's stats atomically using retry-safe RMW (VI-2, VI-3).
-  // The closure re-reads fresh state on each retry, preventing last-writer-wins overwrites
-  // when multiple referees use the same referrer code concurrently.
+  // Update referrer's stats. The retry-on-409 loop in updatePlayerStats is a best-effort
+  // guard only. Takaro's variableControllerUpdate is a plain PUT (no CAS), so concurrent
+  // callers never see a 409 and the retry never fires for same-row races. In the rare case
+  // of two simultaneous /referral calls for the same referrer, referralsTotal (display-only)
+  // may be undercounted by 1. referralsPaid (the actual payout cap) is not touched here —
+  // it is incremented only at payout time in _doPayReferral, where the cap is re-read fresh.
   await updatePlayerStats(gameServerId, moduleId, referrerId, (current) => {
     const currentTodayCount = current.lastReferralDay === today ? current.referralsToday : 0;
     return {
