@@ -18,6 +18,7 @@ import {
   cleanupRole,
   PermissionInput,
 } from '../../../test/helpers/modules.js';
+import { pollUntil } from '../../../test/helpers/poll.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -156,7 +157,6 @@ describe('referral-program: sweep-pending-referrals cronjob', () => {
       timeout: 30000,
     });
     const meta = event.meta as { result?: { success?: boolean; logs?: Array<{ msg: string }> } };
-    await new Promise((resolve) => setTimeout(resolve, 1000));
     return {
       success: meta?.result?.success ?? false,
       logs: (meta?.result?.logs ?? []).map((l) => l.msg),
@@ -224,12 +224,17 @@ describe('referral-program: sweep-pending-referrals cronjob', () => {
       );
     }
 
-    // Verify referrer balance increased by 500
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    const pogAfter = await client.playerOnGameserver.playerOnGameServerControllerSearch({
-      filters: { gameServerId: [ctx.gameServer.id], playerId: [referrer.playerId] },
-    });
-    const balanceAfter = pogAfter.data.data[0]?.currency ?? 0;
+    // Verify referrer balance increased by 500 — poll until balance updates
+    const balanceAfter = await pollUntil(
+      async () => {
+        const pogAfter = await client.playerOnGameserver.playerOnGameServerControllerSearch({
+          filters: { gameServerId: [ctx.gameServer.id], playerId: [referrer.playerId] },
+        });
+        const bal = pogAfter.data.data[0]?.currency ?? 0;
+        return bal >= balanceBefore + 500 ? bal : null;
+      },
+      { timeout: 15000, interval: 200 },
+    );
     assert.equal(balanceAfter, balanceBefore + 500, `Expected balance to increase by 500, was ${balanceBefore} -> ${balanceAfter}`);
   });
 

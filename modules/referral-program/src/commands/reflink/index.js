@@ -46,20 +46,33 @@ async function main() {
     throw new TakaroUserError('Referee and referrer must be different players.');
   }
 
-  // VI-4: Reject when a non-paid link already exists (don't silently overwrite)
+  // VI-3: Reject when ANY link already exists (prevents double-welcome-bonus on retry)
   const existingLink = await getReferralLink(gameServerId, moduleId, refereePlayerId);
   if (existingLink) {
     if (existingLink.status === 'paid') {
       throw new TakaroUserError(`${refereeName} already has a paid referral link.`);
     } else {
-      throw new TakaroUserError(`${refereeName} already has a pending referral link (status: ${existingLink.status}). Run /refunlink ${refereeName} first.`);
+      // pending/in-flight/rejected — admin must refunlink first
+      throw new TakaroUserError(`${refereeName} already has a referral link (status: ${existingLink.status}). Run /refunlink ${refereeName} first.`);
     }
   }
 
-  // VI-5, VI-21: Compute VIP multiplier for referrer, pay first — THEN write status='paid'
+  // VI-3: Create the link with status='pending' BEFORE paying anything.
+  // This prevents duplicate welcome bonuses on retry: a second /reflink call will see
+  // the existing link (status=pending) and fail with "already has a pending referral link".
+  const linkedAt = new Date().toISOString();
+  await setReferralLink(gameServerId, moduleId, refereePlayerId, {
+    referrerId: referrerPlayerId,
+    linkedAt,
+    status: 'pending',
+    playtimeAtLink: 0,
+    retries: 0,
+  });
+
+  // VI-5, VI-21: Compute VIP multiplier for referrer, pay both rewards, then mark paid
   const vipMultiplier = await getVipMultiplier(referrerPlayerId, gameServerId);
 
-  // Pay referee welcome bonus first
+  // Pay referee welcome bonus
   const welcomeBonus = config.refereeCurrencyReward || 0;
   if (welcomeBonus > 0) {
     try {
@@ -76,17 +89,17 @@ async function main() {
   // Pay referrer reward (with VIP multiplier)
   const payResult = await payReferrer(gameServerId, referrerPlayerId, config, vipMultiplier);
   if (!payResult.paid) {
-    // Don't create the link if payout fails — leave in recoverable state
+    // Payout failed — leave link in pending state (admin can /refunlink and retry)
     console.error(`reflink: failed to pay referrer=${referrerName}(${referrerPlayerId}): ${payResult.error}`);
-    throw new TakaroUserError(`Failed to pay referrer reward to ${referrerName}. Link was not created. Error: ${payResult.error}`);
+    throw new TakaroUserError(`Failed to pay referrer reward to ${referrerName}. Link remains in pending state — use /refunlink ${refereeName} to clear it. Error: ${payResult.error}`);
   }
 
   console.log(`reflink: referrer paid ${referrerName}(${referrerPlayerId}), result=${JSON.stringify(payResult)}, vipMultiplier=${vipMultiplier}`);
 
-  // VI-5: Only write status='paid' AFTER both payouts succeed
+  // VI-3: Only update to status='paid' AFTER both payouts succeed
   await setReferralLink(gameServerId, moduleId, refereePlayerId, {
     referrerId: referrerPlayerId,
-    linkedAt: new Date().toISOString(),
+    linkedAt,
     status: 'paid',
     playtimeAtLink: 0,
     retries: 0,

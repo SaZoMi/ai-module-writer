@@ -61,13 +61,14 @@ async function main() {
           progressMsg = ` (${gainedMinutes.toFixed(0)} / ${threshold} minutes played)`;
         }
       } catch (_) {}
-      statusLabel = `pending...${progressMsg}`;
+      statusLabel = `pending${progressMsg}`;
     } else if (myLink.status === 'in-flight') {
       statusLabel = 'processing';
     } else if (myLink.status === 'paid') {
       statusLabel = 'completed';
     } else if (myLink.status === 'rejected') {
-      statusLabel = 'did not qualify';
+      // VI-9: Add recovery hint so referee knows what to do
+      statusLabel = 'did not qualify — contact a server admin if you believe this is an error';
     } else {
       statusLabel = myLink.status;
     }

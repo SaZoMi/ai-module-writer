@@ -17,6 +17,7 @@ import {
   assignPermissions,
   cleanupRole,
 } from '../../../test/helpers/modules.js';
+import { pollUntil } from '../../../test/helpers/poll.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -178,8 +179,20 @@ describe('referral-program: on-player-disconnect hook', () => {
       `Expected "checkAndPayReferral result=paid" in hook logs, got: ${JSON.stringify(logs)}`,
     );
 
-    // Verify link is now paid
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    // Verify link is now paid — poll until status changes
+    await pollUntil(async () => {
+      const vars = await client.variable.variableControllerSearch({
+        filters: {
+          key: ['referral_link'],
+          gameServerId: [ctx.gameServer.id],
+          moduleId: [moduleId],
+          playerId: [referee.playerId],
+        },
+      });
+      if (vars.data.data.length === 0) return false;
+      const link = JSON.parse(vars.data.data[0].value);
+      return link.status === 'paid';
+    }, { timeout: 15000, interval: 200 });
     const linkVarsAfter = await client.variable.variableControllerSearch({
       filters: {
         key: ['referral_link'],

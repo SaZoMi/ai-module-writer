@@ -73,9 +73,12 @@ async function main() {
   // Look up who owns this code
   const codeLookup = await lookupCode(gameServerId, moduleId, code);
   if (!codeLookup) {
+    // VI-8: Increment first, then check. rateData.attempts is now the post-increment value.
     await incrementRateLimit(gameServerId, moduleId, player.id, rateData);
+    // rateData.attempts was already incremented in-place by incrementRateLimit
 
-    if ((rateData.attempts + 1) > RATE_LIMIT_MAX_ATTEMPTS) {
+    if (rateData.attempts > RATE_LIMIT_MAX_ATTEMPTS) {
+      // 11th attempt and beyond — rate limited
       const remainingMs = RATE_LIMIT_WINDOW_MS - (Date.now() - rateData.windowStart);
       const remainingSec = Math.ceil(remainingMs / 1000);
       throw new TakaroUserError(`Too many invalid code attempts. Please wait ${remainingSec} seconds before trying again.`);
@@ -188,9 +191,20 @@ async function main() {
     ? `${(config.playtimeThresholdMinutes / 60).toFixed(1)}h`
     : `${config.playtimeThresholdMinutes}min`;
 
-  const referrerRewardDesc = config.prizeIsCurrency
-    ? `${config.referrerCurrencyReward} currency`
-    : 'a random item reward';
+  // VI-22: List up to 3 item names from the pool instead of generic "a random item reward"
+  let referrerRewardDesc;
+  if (config.prizeIsCurrency) {
+    referrerRewardDesc = `${config.referrerCurrencyReward} currency`;
+  } else {
+    const items = config.items || [];
+    if (items.length === 0) {
+      referrerRewardDesc = 'a random item reward';
+    } else {
+      const itemNames = items.slice(0, 3).map((i) => i.item).filter(Boolean);
+      const suffix = items.length > 3 ? ` and ${items.length - 3} more` : '';
+      referrerRewardDesc = `a random item (${itemNames.join(', ')}${suffix})`;
+    }
+  }
 
   // Omit welcome bonus sentence when welcomeBonus === 0
   let pmMsg = `Referral code applied!`;

@@ -17,6 +17,7 @@ import {
   assignPermissions,
   cleanupRole,
 } from '../../../test/helpers/modules.js';
+import { pollUntil } from '../../../test/helpers/poll.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -173,12 +174,17 @@ describe('referral-program: /referral command', () => {
     // Note: referral_pending_index is no longer maintained in the referral command.
     // The sweep uses getAllPendingRefereeIds() which queries referral_link variables directly.
 
-    // Verify balance increased by welcome bonus (100)
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    const pogAfter = await client.playerOnGameserver.playerOnGameServerControllerSearch({
-      filters: { gameServerId: [ctx.gameServer.id], playerId: [referee.playerId] },
-    });
-    const balanceAfter = pogAfter.data.data[0]?.currency ?? 0;
+    // Verify balance increased by welcome bonus (100) — poll until balance updates
+    const balanceAfter = await pollUntil(
+      async () => {
+        const pogAfter = await client.playerOnGameserver.playerOnGameServerControllerSearch({
+          filters: { gameServerId: [ctx.gameServer.id], playerId: [referee.playerId] },
+        });
+        const bal = pogAfter.data.data[0]?.currency ?? 0;
+        return bal >= balanceBefore + 100 ? bal : null;
+      },
+      { timeout: 15000, interval: 200 },
+    );
     assert.equal(balanceAfter, balanceBefore + 100, `Expected balance to increase by 100, was ${balanceBefore} -> ${balanceAfter}`);
   });
 

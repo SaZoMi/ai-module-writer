@@ -17,6 +17,7 @@ import {
   assignPermissions,
   cleanupRole,
 } from '../../../test/helpers/modules.js';
+import { pollUntil } from '../../../test/helpers/poll.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -132,8 +133,19 @@ describe('referral-program: admin commands (/reflink, /refunlink)', () => {
       `Expected "admin force-linked" in logs, got: ${JSON.stringify(linkLogs)}`,
     );
 
-    // Verify link is created with status=paid
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    // Verify link is created with status=paid — poll until variable appears
+    await pollUntil(async () => {
+      const vars = await client.variable.variableControllerSearch({
+        filters: {
+          key: ['referral_link'],
+          gameServerId: [ctx.gameServer.id],
+          moduleId: [moduleId],
+          playerId: [referee.playerId],
+        },
+      });
+      return vars.data.data.length > 0;
+    }, { timeout: 10000, interval: 200 });
+
     const linkVars = await client.variable.variableControllerSearch({
       filters: {
         key: ['referral_link'],
@@ -170,8 +182,19 @@ describe('referral-program: admin commands (/reflink, /refunlink)', () => {
       `Expected "admin removed link" in logs, got: ${JSON.stringify(unlinkLogs)}`,
     );
 
-    // Verify link is gone
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    // Verify link is gone — poll until variable disappears
+    await pollUntil(async () => {
+      const vars = await client.variable.variableControllerSearch({
+        filters: {
+          key: ['referral_link'],
+          gameServerId: [ctx.gameServer.id],
+          moduleId: [moduleId],
+          playerId: [referee.playerId],
+        },
+      });
+      return vars.data.data.length === 0;
+    }, { timeout: 10000, interval: 200 });
+
     const linkVarsAfter = await client.variable.variableControllerSearch({
       filters: {
         key: ['referral_link'],

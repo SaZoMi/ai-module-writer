@@ -17,6 +17,7 @@ import {
   assignPermissions,
   cleanupRole,
 } from '../../../test/helpers/modules.js';
+import { pollUntil } from '../../../test/helpers/poll.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -129,7 +130,20 @@ describe('referral-program: /refstats and /reftop commands', () => {
       after: beforeSweep,
       timeout: 30000,
     });
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    // Poll until link is paid (before() setup complete)
+    await pollUntil(async () => {
+      const vars = await client.variable.variableControllerSearch({
+        filters: {
+          key: ['referral_link'],
+          gameServerId: [ctx.gameServer.id],
+          moduleId: [moduleId],
+          playerId: [ctx.players[1].playerId],
+        },
+      });
+      if (vars.data.data.length === 0) return false;
+      const link = JSON.parse(vars.data.data[0].value);
+      return link.status === 'paid';
+    }, { timeout: 15000, interval: 200 });
   });
 
   after(async () => {

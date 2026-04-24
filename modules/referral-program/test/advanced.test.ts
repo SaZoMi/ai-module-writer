@@ -30,6 +30,7 @@ import {
   cleanupRole,
   PermissionInput,
 } from '../../../test/helpers/modules.js';
+import { pollUntil } from '../../../test/helpers/poll.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -170,16 +171,20 @@ describe('referral-program: VIP multiplier (count=3 → +15%)', () => {
     const sweepMeta = sweepEvent.meta as { result?: { success?: boolean; logs?: Array<{ msg: string }> } };
     assert.equal(sweepMeta?.result?.success, true, `Expected sweep to succeed, logs: ${JSON.stringify(sweepMeta?.result?.logs)}`);
 
-    // Wait for balance update
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-
-    const pogAfter = await client.playerOnGameserver.playerOnGameServerControllerSearch({
-      filters: { gameServerId: [ctx.gameServer.id], playerId: [ctx.players[0].playerId] },
-    });
-    const balanceAfter = pogAfter.data.data[0]?.currency ?? 0;
+    // Wait for balance update — poll until balance reflects VIP reward
+    const expectedReward = Math.floor(1000 * 1.15);
+    const balanceAfter = await pollUntil(
+      async () => {
+        const pogAfter = await client.playerOnGameserver.playerOnGameServerControllerSearch({
+          filters: { gameServerId: [ctx.gameServer.id], playerId: [ctx.players[0].playerId] },
+        });
+        const bal = pogAfter.data.data[0]?.currency ?? 0;
+        return bal >= balanceBefore + expectedReward ? bal : null;
+      },
+      { timeout: 15000, interval: 200 },
+    );
 
     // Expected: 1000 * 1.15 = 1150 (floor)
-    const expectedReward = Math.floor(1000 * 1.15);
     assert.equal(
       balanceAfter,
       balanceBefore + expectedReward,
@@ -314,19 +319,22 @@ describe('referral-program: VIP multiplier cap at +25% (count=6)', () => {
       timeout: 30000,
     });
 
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-
-    const pogAfter = await client.playerOnGameserver.playerOnGameServerControllerSearch({
-      filters: { gameServerId: [ctx.gameServer.id], playerId: [ctx.players[0].playerId] },
-    });
-    const balanceAfter = pogAfter.data.data[0]?.currency ?? 0;
-
     // count=6 caps at 5 → multiplier = 1.25 → 1000 * 1.25 = 1250
-    const expectedReward = Math.floor(1000 * 1.25);
+    const expectedRewardCapped = Math.floor(1000 * 1.25);
+    const balanceAfter = await pollUntil(
+      async () => {
+        const pogAfter = await client.playerOnGameserver.playerOnGameServerControllerSearch({
+          filters: { gameServerId: [ctx.gameServer.id], playerId: [ctx.players[0].playerId] },
+        });
+        const bal = pogAfter.data.data[0]?.currency ?? 0;
+        return bal >= balanceBefore + expectedRewardCapped ? bal : null;
+      },
+      { timeout: 15000, interval: 200 },
+    );
     assert.equal(
       balanceAfter,
-      balanceBefore + expectedReward,
-      `Expected capped VIP reward of ${expectedReward} (1000 base × 1.25 cap), balance was ${balanceBefore} → ${balanceAfter}`,
+      balanceBefore + expectedRewardCapped,
+      `Expected capped VIP reward of ${expectedRewardCapped} (1000 base × 1.25 cap), balance was ${balanceBefore} → ${balanceAfter}`,
     );
   });
 });
@@ -484,8 +492,20 @@ describe('referral-program: reset-daily-counters cronjob', () => {
       `Expected reset=1 in logs, got: ${JSON.stringify(logs)}`,
     );
 
-    // Verify referralsToday is now 0
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    // Verify referralsToday is now 0 — poll until stat is reset
+    await pollUntil(async () => {
+      const afterVars = await client.variable.variableControllerSearch({
+        filters: {
+          key: ['referral_stats'],
+          gameServerId: [ctx.gameServer.id],
+          moduleId: [moduleId],
+          playerId: [ctx.players[0].playerId],
+        },
+      });
+      if (afterVars.data.data.length === 0) return false;
+      const s = JSON.parse(afterVars.data.data[0].value);
+      return s.referralsToday === 0;
+    }, { timeout: 10000, interval: 200 });
     const afterVars = await client.variable.variableControllerSearch({
       filters: {
         key: ['referral_stats'],
@@ -734,7 +754,20 @@ describe('referral-program: /reftop ordering with multiple referrers', () => {
       after: beforeSweep1,
       timeout: 30000,
     });
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    // Wait for stats to be written after sweep
+    await pollUntil(async () => {
+      const statsVars = await client.variable.variableControllerSearch({
+        filters: {
+          key: ['referral_stats'],
+          gameServerId: [ctx.gameServer.id],
+          moduleId: [moduleId],
+          playerId: [ctx.players[0].playerId],
+        },
+      });
+      if (statsVars.data.data.length === 0) return false;
+      const s = JSON.parse(statsVars.data.data[0].value);
+      return s.referralsPaid >= 1;
+    }, { timeout: 15000, interval: 200 });
 
     // player[1] generates a code but has 0 paid referrals (for ordering check)
     const before1 = new Date();
@@ -945,8 +978,20 @@ describe('referral-program: retry → rejected path after 3 payout failures', ()
     const sweepMeta = sweepEvent.meta as { result?: { success?: boolean; logs?: Array<{ msg: string }> } };
     assert.equal(sweepMeta?.result?.success, true, `Expected sweep to succeed, logs: ${JSON.stringify(sweepMeta?.result?.logs)}`);
 
-    // Wait for variable updates
-    await new Promise((resolve) => setTimeout(resolve, 1500));
+    // Wait for link status to update to 'rejected' — poll
+    await pollUntil(async () => {
+      const vars = await client.variable.variableControllerSearch({
+        filters: {
+          key: ['referral_link'],
+          gameServerId: [ctx.gameServer.id],
+          moduleId: [moduleId],
+          playerId: [ctx.players[1].playerId],
+        },
+      });
+      if (vars.data.data.length === 0) return false;
+      const link = JSON.parse(vars.data.data[0].value);
+      return link.status === 'rejected';
+    }, { timeout: 15000, interval: 200 });
 
     // Assert link status = 'rejected'
     const linkVarsAfter = await client.variable.variableControllerSearch({
@@ -1094,7 +1139,20 @@ describe('referral-program: prizeIsCurrency=false item payout increments itemsEa
     const sweepMeta = sweepEvent.meta as { result?: { success?: boolean; logs?: Array<{ msg: string }> } };
     assert.equal(sweepMeta?.result?.success, true, `Expected sweep to succeed, logs: ${JSON.stringify(sweepMeta?.result?.logs)}`);
 
-    await new Promise((resolve) => setTimeout(resolve, 1500));
+    // Poll until link is marked paid
+    await pollUntil(async () => {
+      const vars = await client.variable.variableControllerSearch({
+        filters: {
+          key: ['referral_link'],
+          gameServerId: [ctx.gameServer.id],
+          moduleId: [moduleId],
+          playerId: [ctx.players[1].playerId],
+        },
+      });
+      if (vars.data.data.length === 0) return false;
+      const link = JSON.parse(vars.data.data[0].value);
+      return link.status === 'paid';
+    }, { timeout: 15000, interval: 200 });
 
     // Verify link is paid
     const linkVars = await client.variable.variableControllerSearch({
@@ -1227,7 +1285,20 @@ describe('referral-program: /refstats referee branch includes link info', () => 
       after: beforeSweep,
       timeout: 30000,
     });
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    // Poll until link is paid (before() setup complete)
+    await pollUntil(async () => {
+      const vars = await client.variable.variableControllerSearch({
+        filters: {
+          key: ['referral_link'],
+          gameServerId: [ctx.gameServer.id],
+          moduleId: [moduleId],
+          playerId: [ctx.players[1].playerId],
+        },
+      });
+      if (vars.data.data.length === 0) return false;
+      const link = JSON.parse(vars.data.data[0].value);
+      return link.status === 'paid';
+    }, { timeout: 15000, interval: 200 });
   });
 
   after(async () => {

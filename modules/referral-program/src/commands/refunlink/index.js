@@ -64,6 +64,11 @@ async function main() {
     }
   }
 
+  // VI-17: Decrement referralsRejected when removing a rejected link
+  if (existingLink.status === 'rejected') {
+    updatedStats.referralsRejected = Math.max(0, (referrerStats.referralsRejected || 0) - 1);
+  }
+
   await setPlayerStats(gameServerId, moduleId, referrerId, updatedStats);
 
   // VI-35: Include player name/id in admin action logs

@@ -5,7 +5,7 @@ export const KEY_REFERRAL_CODE = 'referral_code';        // per-player: { code, 
 export const KEY_CODE_LOOKUP = 'referral_code_lookup';   // global (key includes code): { playerId }
 export const KEY_REFERRAL_LINK = 'referral_link';        // per-player (referee): { referrerId, linkedAt, status, playtimeAtLink, retries, paidAmount, paidType }
 export const KEY_REFERRAL_STATS = 'referral_stats';      // per-player: { referralsTotal, referralsPaid, referralsRejected, referralsToday, lastReferralDay, currencyEarned, itemsEarned }
-export const KEY_PENDING_INDEX = 'referral_pending_index'; // global: { refereeIds: string[] }
+// KEY_PENDING_INDEX removed (VI-10): the sweep uses getAllPendingRefereeIds() via variableSearch directly
 
 export const DEFAULT_STATS = {
   referralsTotal: 0,
@@ -130,43 +130,34 @@ export async function setPlayerStats(gameServerId, moduleId, playerId, statsData
   await writeVariable(gameServerId, moduleId, KEY_REFERRAL_STATS, statsData, playerId);
 }
 
-// --- Pending index helpers ---
-// Note: The pending index is a best-effort hint. The sweep cronjob can also
-// query variables directly. Concurrent writes may occasionally drop an entry,
-// but the sweep will recover on the next tick.
-
-export async function getPendingIndex(gameServerId, moduleId) {
-  const v = await findVariable(gameServerId, moduleId, KEY_PENDING_INDEX);
-  if (!v) return { refereeIds: [] };
-  try { return { refereeIds: [], ...JSON.parse(v.value) }; } catch (e) { return { refereeIds: [] }; }
-}
-
-export async function setPendingIndex(gameServerId, moduleId, data) {
-  await writeVariable(gameServerId, moduleId, KEY_PENDING_INDEX, data);
-}
-
-export async function addToPendingIndex(gameServerId, moduleId, refereePlayerId) {
-  const index = await getPendingIndex(gameServerId, moduleId);
-  if (!index.refereeIds.includes(refereePlayerId)) {
-    index.refereeIds.push(refereePlayerId);
-    await setPendingIndex(gameServerId, moduleId, index);
-  }
-}
-
-export async function removeFromPendingIndex(gameServerId, moduleId, refereePlayerId) {
-  // Best-effort: the pending index is a hint for the sweep cronjob.
-  // getAllPendingRefereeIds() is the authoritative source; index failures are non-fatal.
-  try {
-    const index = await getPendingIndex(gameServerId, moduleId);
-    const before = index.refereeIds.length;
-    index.refereeIds = index.refereeIds.filter((id) => id !== refereePlayerId);
-    if (index.refereeIds.length !== before) {
-      await setPendingIndex(gameServerId, moduleId, index);
+/**
+ * Atomically apply a delta to player stats using a read-modify-write retry loop (VI-4).
+ * The `applyDelta` function receives current stats and returns updated stats.
+ * Retries up to maxRetries times on write conflict (re-reads on each retry).
+ */
+export async function updatePlayerStats(gameServerId, moduleId, playerId, applyDelta, maxRetries = 5) {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const current = await getPlayerStats(gameServerId, moduleId, playerId);
+    const updated = applyDelta(current);
+    try {
+      await writeVariable(gameServerId, moduleId, KEY_REFERRAL_STATS, updated, playerId);
+      return;
+    } catch (err) {
+      const status = err?.response?.status ?? err?.status;
+      if (attempt < maxRetries && (status === 409 || status === 500)) {
+        const delay = Math.min(100 * Math.pow(2, attempt), 2000);
+        console.warn(`referral-helpers: updatePlayerStats — write conflict (attempt ${attempt + 1}/${maxRetries}), retrying in ${delay}ms`);
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        continue;
+      }
+      throw err;
     }
-  } catch (err) {
-    console.warn(`referral-helpers: removeFromPendingIndex failed (non-fatal): ${err}`);
   }
 }
+
+// Pending index helpers removed (VI-10).
+// The sweep uses getAllPendingRefereeIds() which queries referral_link variables directly.
+// This avoids the RMW race that the index pattern introduced.
 
 // Stranded in-flight links older than this threshold are reclaimed by the sweep (VI-5)
 const IN_FLIGHT_STALE_MS = 5 * 60 * 1000; // 5 minutes
@@ -434,14 +425,20 @@ export async function checkAndPayReferral(gameServerId, moduleId, refereePlayerI
     return await _doPayReferral(gameServerId, moduleId, refereePlayerId, link, claimToken, config);
   } catch (err) {
     console.error(`referral-helpers: checkAndPayReferral — unexpected error for referee=${refereePlayerId}, restoring to pending: ${err}`);
-    const retries = (link.retries || 0) + 1;
-    await setReferralLink(gameServerId, moduleId, refereePlayerId, {
-      ...link,
-      status: 'pending',
-      retries,
-      claimToken: undefined,
-      inFlightSince: undefined,
-    });
+    // VI-12: Re-read current link to get up-to-date retries (not the stale value from before in-flight flip)
+    try {
+      const currentLink = await getReferralLink(gameServerId, moduleId, refereePlayerId);
+      const currentRetries = (currentLink?.retries || 0) + 1;
+      await setReferralLink(gameServerId, moduleId, refereePlayerId, {
+        ...(currentLink || link),
+        status: 'pending',
+        retries: currentRetries,
+        claimToken: undefined,
+        inFlightSince: undefined,
+      });
+    } catch (restoreErr) {
+      console.error(`referral-helpers: checkAndPayReferral — failed to restore link for referee=${refereePlayerId}: ${restoreErr}`);
+    }
     return 'pending';
   }
 }
@@ -480,21 +477,20 @@ async function _doPayReferral(gameServerId, moduleId, refereePlayerId, link, cla
     return 'pending';
   }
 
-  // Threshold crossed — re-check lifetime cap before paying (VI-7 concurrent over-cap guard)
+  // Threshold crossed — re-check lifetime cap before paying (VI-4/VI-7 concurrent over-cap guard)
+  // Re-read stats fresh here to get the latest value before cap check.
   const referrerStatsCheck = await getPlayerStats(gameServerId, moduleId, link.referrerId);
   if (referrerStatsCheck.referralsPaid >= config.maxReferralsLifetime) {
     console.log(`referral-helpers: _doPayReferral — referrer=${link.referrerId} at lifetime cap (${referrerStatsCheck.referralsPaid}/${config.maxReferralsLifetime}), marking rejected`);
-    const updatedStats = {
-      ...referrerStatsCheck,
-      referralsRejected: (referrerStatsCheck.referralsRejected || 0) + 1,
-    };
-    await setPlayerStats(gameServerId, moduleId, link.referrerId, updatedStats);
+    await updatePlayerStats(gameServerId, moduleId, link.referrerId, (s) => ({
+      ...s,
+      referralsRejected: (s.referralsRejected || 0) + 1,
+    }));
     await setReferralLink(gameServerId, moduleId, refereePlayerId, {
       ...link,
       status: 'rejected',
       retries: link.retries || 0,
     });
-    await removeFromPendingIndex(gameServerId, moduleId, refereePlayerId);
     return 'rejected';
   }
 
@@ -506,31 +502,40 @@ async function _doPayReferral(gameServerId, moduleId, refereePlayerId, link, cla
   const payResult = await payReferrer(gameServerId, link.referrerId, config, vipMultiplier);
 
   if (!payResult.paid) {
-    console.error(`referral-helpers: checkAndPayReferral — pay failed for referrer=${link.referrerId}, retry=${retries + 1}/3. Error: ${payResult.error}`);
-    if (retries + 1 >= 3) {
-      // Mark as rejected after 3 failures (VI-2, VI-19)
-      const referrerStats = await getPlayerStats(gameServerId, moduleId, link.referrerId);
-      const updatedReferrerStats = {
-        ...referrerStats,
-        referralsRejected: (referrerStats.referralsRejected || 0) + 1,
-      };
-      await setPlayerStats(gameServerId, moduleId, link.referrerId, updatedReferrerStats);
+    // VI-12: Re-read the link to get the current retries value (don't use stale value from outer scope)
+    const currentLinkForRetry = await getReferralLink(gameServerId, moduleId, refereePlayerId);
+    const currentRetries = (currentLinkForRetry?.retries || 0);
+    const newRetries = currentRetries + 1;
+    console.error(`referral-helpers: checkAndPayReferral — pay failed for referrer=${link.referrerId}, retry=${newRetries}/3. Error: ${payResult.error}`);
+    if (newRetries >= 3) {
+      // Mark as rejected after 3 failures (VI-2, VI-12)
+      await updatePlayerStats(gameServerId, moduleId, link.referrerId, (s) => ({
+        ...s,
+        referralsRejected: (s.referralsRejected || 0) + 1,
+      }));
 
       await setReferralLink(gameServerId, moduleId, refereePlayerId, {
         ...link,
         status: 'rejected',
-        retries: retries + 1,
+        retries: newRetries,
       });
-      await removeFromPendingIndex(gameServerId, moduleId, refereePlayerId);
       return 'rejected';
     } else {
       await setReferralLink(gameServerId, moduleId, refereePlayerId, {
         ...link,
         status: 'pending',
-        retries: retries + 1,
+        retries: newRetries,
       });
       return 'pending';
     }
+  }
+
+  // Idempotency guard (VI-2): re-read the link BEFORE writing 'paid'. If it's already 'paid',
+  // another writer raced us and already committed the payout — abort to prevent double-stats-update.
+  const linkAfterPay = await getReferralLink(gameServerId, moduleId, refereePlayerId);
+  if (linkAfterPay && linkAfterPay.status === 'paid') {
+    console.warn(`referral-helpers: _doPayReferral — idempotency guard triggered: link already paid for referee=${refereePlayerId}. Payout may have been applied twice; check referrer balance.`);
+    return 'paid';
   }
 
   // Payout succeeded — update link status with paid amount for rollback (VI-17)
@@ -540,21 +545,18 @@ async function _doPayReferral(gameServerId, moduleId, refereePlayerId, link, cla
     paidAmount: payResult.paidAmount,
     paidType: payResult.type,
   });
-  await removeFromPendingIndex(gameServerId, moduleId, refereePlayerId);
 
-  // Update referrer stats
-  const referrerStats = await getPlayerStats(gameServerId, moduleId, link.referrerId);
-  const updatedReferrerStats = {
-    ...referrerStats,
-    referralsPaid: referrerStats.referralsPaid + 1,
+  // Update referrer stats using retry-safe helper (VI-4: concurrent DIFFERENT-referee payouts for same referrer)
+  await updatePlayerStats(gameServerId, moduleId, link.referrerId, (s) => ({
+    ...s,
+    referralsPaid: s.referralsPaid + 1,
     currencyEarned: payResult.type === 'currency' || payResult.type === 'currency-fallback'
-      ? referrerStats.currencyEarned + (payResult.amount || 0)
-      : referrerStats.currencyEarned,
+      ? s.currencyEarned + (payResult.amount || 0)
+      : s.currencyEarned,
     itemsEarned: payResult.type === 'item'
-      ? referrerStats.itemsEarned + (payResult.amount || 1)
-      : referrerStats.itemsEarned,
-  };
-  await setPlayerStats(gameServerId, moduleId, link.referrerId, updatedReferrerStats);
+      ? s.itemsEarned + (payResult.amount || 1)
+      : s.itemsEarned,
+  }));
 
   if (payResult.type === 'currency') {
     console.log(`referral-helpers: checkAndPayReferral — paid referrer=${link.referrerId}, amount=${payResult.amount} currency, vipMultiplier=${vipMultiplier}`);
@@ -564,7 +566,7 @@ async function _doPayReferral(gameServerId, moduleId, refereePlayerId, link, cla
     console.log(`referral-helpers: checkAndPayReferral — paid referrer=${link.referrerId} via currency-fallback, amount=${payResult.amount}`);
   }
 
-  // PM the referrer if they're online (VI-13)
+  // PM the referrer if they're online (VI-1: use gameServerControllerSendMessage, not pog.pm())
   try {
     const referrerPogRes = await takaro.playerOnGameserver.playerOnGameServerControllerSearch({
       filters: { gameServerId: [gameServerId], playerId: [link.referrerId] },
@@ -584,7 +586,14 @@ async function _doPayReferral(gameServerId, moduleId, refereePlayerId, link, cla
         ? `${payResult.amount}x ${payResult.item}`
         : `${payResult.amount} currency`;
 
-      await referrerPog.pm(`Your referral for ${refereeName} is complete! You earned ${rewardDesc}.`);
+      // Use sendMessage with recipient gameId to PM the referrer (VI-1: pog object has no .pm() method)
+      const referrerGameId = referrerPog.gameId;
+      if (referrerGameId) {
+        await takaro.gameserver.gameServerControllerSendMessage(gameServerId, {
+          message: `Your referral for ${refereeName} is complete! You earned ${rewardDesc}.`,
+          opts: { recipient: { gameId: referrerGameId } },
+        });
+      }
     }
   } catch (err) {
     console.error(`referral-helpers: checkAndPayReferral — failed to PM referrer ${link.referrerId}: ${err}`);
