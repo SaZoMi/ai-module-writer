@@ -170,17 +170,8 @@ describe('referral-program: /referral command', () => {
     assert.equal(linkData.status, 'pending', 'Expected link status to be pending');
     assert.equal(linkData.referrerId, ctx.players[0].playerId, 'Expected referrerId to match player[0]');
 
-    // Verify pending index was updated
-    const indexVars = await client.variable.variableControllerSearch({
-      filters: {
-        key: ['referral_pending_index'],
-        gameServerId: [ctx.gameServer.id],
-        moduleId: [moduleId],
-      },
-    });
-    assert.ok(indexVars.data.data.length > 0, 'Expected referral_pending_index to be created');
-    const indexData = JSON.parse(indexVars.data.data[0].value);
-    assert.ok(indexData.refereeIds.includes(referee.playerId), 'Expected referee to be in pending index');
+    // Note: referral_pending_index is no longer maintained in the referral command.
+    // The sweep uses getAllPendingRefereeIds() which queries referral_link variables directly.
 
     // Verify balance increased by welcome bonus (100)
     await new Promise((resolve) => setTimeout(resolve, 1000));

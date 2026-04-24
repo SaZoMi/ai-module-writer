@@ -47,7 +47,22 @@ export async function writeVariable(gameServerId, moduleId, key, value, playerId
   }
   const payload = { key, value: serialized, gameServerId, moduleId };
   if (playerId) payload.playerId = playerId;
-  await takaro.variable.variableControllerCreate(payload);
+  try {
+    await takaro.variable.variableControllerCreate(payload);
+  } catch (err) {
+    // 409 Conflict means another concurrent writer already created it — treat as success,
+    // then update to ensure our value wins.
+    const status = err?.response?.status ?? err?.status;
+    if (status === 409) {
+      console.warn(`referral-helpers: writeVariable — 409 on create for key=${key}, updating instead`);
+      const fresh = await findVariable(gameServerId, moduleId, key, playerId);
+      if (fresh) {
+        await takaro.variable.variableControllerUpdate(fresh.id, { value: serialized });
+      }
+    } else {
+      throw err;
+    }
+  }
 }
 
 export async function deleteVariableRecord(gameServerId, moduleId, key, playerId) {
@@ -153,8 +168,13 @@ export async function removeFromPendingIndex(gameServerId, moduleId, refereePlay
   }
 }
 
+// Stranded in-flight links older than this threshold are reclaimed by the sweep (VI-5)
+const IN_FLIGHT_STALE_MS = 5 * 60 * 1000; // 5 minutes
+
 /**
  * Get ALL pending referee IDs by searching variables directly.
+ * Also reclaims stranded in-flight records older than IN_FLIGHT_STALE_MS:
+ * those are reset to 'pending' (with incremented retries) so the sweep retries them.
  * This is more reliable than the pending index for the sweep cronjob,
  * avoiding read-modify-write races.
  */
@@ -184,6 +204,18 @@ export async function getAllPendingRefereeIds(gameServerId, moduleId) {
         const link = JSON.parse(record.value);
         if (link.status === 'pending') {
           results.push(record.playerId);
+        } else if (link.status === 'in-flight') {
+          // Reclaim stale in-flight records (VI-5)
+          const inFlightAge = Date.now() - (link.inFlightSince || 0);
+          if (inFlightAge > IN_FLIGHT_STALE_MS) {
+            const retries = (link.retries || 0) + 1;
+            const { claimToken: _ct, inFlightSince: _ifs, ...rest } = link;
+            console.log(`referral-helpers: reclaiming stale in-flight referee=${record.playerId} (${Math.round(inFlightAge / 1000)}s old), retries=${retries}`);
+            await takaro.variable.variableControllerUpdate(record.id, {
+              value: JSON.stringify({ ...rest, status: 'pending', retries }),
+            });
+            results.push(record.playerId);
+          }
         }
       } catch (e) {
         // skip unparseable records
@@ -232,17 +264,32 @@ export async function getAllStats(gameServerId, moduleId) {
   return results;
 }
 
-// --- Code generation (VI-32) ---
-// Uses Math.random which is acceptable in the Takaro sandbox (code space is ~10^9,
-// collisions are detected and retried in the caller via lookupCode).
+// --- Code generation ---
+// Prefer crypto.randomBytes for better randomness; fall back to Math.random in sandboxes
+// that don't expose Node's crypto module. The 6-char code space is ~1e9; collisions are
+// detected and retried in the caller via lookupCode (generateUniqueCode).
+// NOTE (VI-22 TOCTOU): generateUniqueCode checks existence then writes separately.
+// In the Takaro sandbox there is no compare-and-swap primitive, so a tiny race window
+// exists between the check and the create. Collision probability on a healthy server
+// (~100 active codes) is <<1e-6 per generation; we accept the risk.
 
 export function generateCode() {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // unambiguous chars (no 0/O/1/I)
   let code = '';
-  for (let i = 0; i < 6; i++) {
-    code += chars[Math.floor(Math.random() * chars.length)];
+  try {
+    // Node.js crypto — available in most environments including Takaro sandbox
+    const bytes = crypto.randomBytes(6);
+    for (let i = 0; i < 6; i++) {
+      code += chars[bytes[i] % chars.length];
+    }
+    return code;
+  } catch (_) {
+    // Fallback: Math.random (acceptable for code generation given collision detection)
+    for (let i = 0; i < 6; i++) {
+      code += chars[Math.floor(Math.random() * chars.length)];
+    }
+    return code;
   }
-  return code;
 }
 
 /**
@@ -340,9 +387,16 @@ export async function payReferrer(gameServerId, referrerPlayerId, config, vipMul
  * Core payout logic: check if a referee has crossed the playtime threshold
  * and if so, pay the referrer and flip the link to 'paid'.
  *
- * ATOMIC RESERVATION (VI-1): Before any payout, flip status to 'in-flight'.
- * If the re-read shows the status is no longer 'pending', another writer beat us — abort.
- * This prevents double-payout races between the sweep cronjob and disconnect hook.
+ * ATOMIC RESERVATION (VI-1): Before any payout, flip status to 'in-flight' with a
+ * unique claimToken. After writing, re-read the variable. If the stored claimToken
+ * does NOT match ours, we lost a last-writer-wins race — abort.
+ * This prevents double-payout: both writers write in-flight, but only one will see
+ * their token on re-read.
+ *
+ * IN-FLIGHT STRANDING (VI-5): If anything throws between the in-flight flip and the
+ * final 'paid' write, the outer try/catch restores the link to 'pending' with
+ * incremented retries. The sweep also checks inFlightSince on in-flight records
+ * (via getAllPendingRefereeIds) and reclaims them after 5 minutes.
  *
  * Returns: 'paid' | 'pending' | 'no-link' | 'rejected' | 'in-flight' (already claimed)
  */
@@ -351,21 +405,48 @@ export async function checkAndPayReferral(gameServerId, moduleId, refereePlayerI
   if (!link) return 'no-link';
   if (link.status !== 'pending') return link.status;
 
-  // --- ATOMIC CLAIM: flip to 'in-flight' before doing any work ---
+  // --- ATOMIC CLAIM: flip to 'in-flight' with a unique claimToken ---
+  let claimToken;
+  try {
+    const buf = crypto.randomBytes(8);
+    claimToken = buf.toString('hex');
+  } catch (_) {
+    claimToken = Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
+  }
+
   await setReferralLink(gameServerId, moduleId, refereePlayerId, {
     ...link,
     status: 'in-flight',
+    claimToken,
+    inFlightSince: Date.now(),
   });
 
-  // Re-read to confirm we own the lock (another writer may have beaten us)
+  // Re-read to confirm we own the claim (last-writer-wins, but only one writer has our token)
   const claimed = await getReferralLink(gameServerId, moduleId, refereePlayerId);
-  if (!claimed || claimed.status !== 'in-flight') {
-    // Another writer already claimed it; abort
-    console.log(`referral-helpers: checkAndPayReferral — in-flight claim lost for referee=${refereePlayerId}, aborting`);
+  if (!claimed || claimed.status !== 'in-flight' || claimed.claimToken !== claimToken) {
+    // Another writer claimed it with a different token; abort
+    console.log(`referral-helpers: checkAndPayReferral — in-flight claim lost (token mismatch) for referee=${refereePlayerId}, aborting`);
     return 'in-flight';
   }
 
-  // We own the in-flight state. Now do all the work.
+  // We own the in-flight state. Wrap everything in try/catch so crashes restore to pending.
+  try {
+    return await _doPayReferral(gameServerId, moduleId, refereePlayerId, link, claimToken, config);
+  } catch (err) {
+    console.error(`referral-helpers: checkAndPayReferral — unexpected error for referee=${refereePlayerId}, restoring to pending: ${err}`);
+    const retries = (link.retries || 0) + 1;
+    await setReferralLink(gameServerId, moduleId, refereePlayerId, {
+      ...link,
+      status: 'pending',
+      retries,
+      claimToken: undefined,
+      inFlightSince: undefined,
+    });
+    return 'pending';
+  }
+}
+
+async function _doPayReferral(gameServerId, moduleId, refereePlayerId, link, claimToken, config) {
   // Fetch current playtime for the referee
   let currentPlaytimeSeconds;
   try {
@@ -399,7 +480,25 @@ export async function checkAndPayReferral(gameServerId, moduleId, refereePlayerI
     return 'pending';
   }
 
-  // Threshold crossed — look up referrer's VIP tier
+  // Threshold crossed — re-check lifetime cap before paying (VI-7 concurrent over-cap guard)
+  const referrerStatsCheck = await getPlayerStats(gameServerId, moduleId, link.referrerId);
+  if (referrerStatsCheck.referralsPaid >= config.maxReferralsLifetime) {
+    console.log(`referral-helpers: _doPayReferral — referrer=${link.referrerId} at lifetime cap (${referrerStatsCheck.referralsPaid}/${config.maxReferralsLifetime}), marking rejected`);
+    const updatedStats = {
+      ...referrerStatsCheck,
+      referralsRejected: (referrerStatsCheck.referralsRejected || 0) + 1,
+    };
+    await setPlayerStats(gameServerId, moduleId, link.referrerId, updatedStats);
+    await setReferralLink(gameServerId, moduleId, refereePlayerId, {
+      ...link,
+      status: 'rejected',
+      retries: link.retries || 0,
+    });
+    await removeFromPendingIndex(gameServerId, moduleId, refereePlayerId);
+    return 'rejected';
+  }
+
+  // Look up referrer's VIP tier
   const vipMultiplier = await getVipMultiplier(link.referrerId, gameServerId);
 
   // Attempt payout

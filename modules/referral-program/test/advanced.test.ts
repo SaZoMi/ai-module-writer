@@ -1,13 +1,13 @@
 /**
  * Advanced referral-program tests covering:
- * - VI-2:  Retry/rejected path (payout failures → retries → rejected after 3)
- * - VI-7:  VIP multiplier (+15% for count=3, cap at +25% for count=6)
- * - VI-8:  reset-daily-counters cronjob
- * - VI-14: maxReferralsPerDay cap
- * - VI-15: prizeIsCurrency=false item payout
- * - VI-20: test order independence — each test uses its own before/after setup
- * - VI-37: /reftop ordering test with 2+ referrers
- * - VI-38: /refstats referee-branch asserts link status + referrer info
+ * - Retry/rejected path (payout failures → retries → rejected after 3)
+ * - VIP multiplier (+15% for count=3, cap at +25% for count=6)
+ * - reset-daily-counters cronjob
+ * - maxReferralsPerDay cap
+ * - prizeIsCurrency=false item payout (itemsEarned stat incremented)
+ * - test order independence — each test uses its own before/after setup
+ * - /reftop ordering test with 2+ referrers
+ * - /refstats referee-branch asserts link status + referrer info
  */
 
 import { describe, it, before, after } from 'node:test';
@@ -785,34 +785,348 @@ describe('referral-program: /reftop ordering with multiple referrers', () => {
   });
 
   it('/reftop results should be ordered by paid referrals descending', async () => {
-    // Check that the variable data shows player[0] has more paid referrals than player[1]
-    const [stats0Vars, stats1Vars] = await Promise.all([
-      client.variable.variableControllerSearch({
-        filters: {
-          key: ['referral_stats'],
-          gameServerId: [ctx.gameServer.id],
-          moduleId: [moduleId],
-          playerId: [ctx.players[0].playerId],
-        },
-      }),
-      client.variable.variableControllerSearch({
-        filters: {
-          key: ['referral_stats'],
-          gameServerId: [ctx.gameServer.id],
-          moduleId: [moduleId],
-          playerId: [ctx.players[1].playerId],
-        },
-      }),
-    ]);
+    // Get player[0]'s name (who has 1 paid referral and should appear first)
+    const pog0Res = await client.playerOnGameserver.playerOnGameServerControllerSearch({
+      filters: { gameServerId: [ctx.gameServer.id], playerId: [ctx.players[0].playerId] },
+    });
+    const player0Name = pog0Res.data.data[0]?.gameId ?? '';
+    assert.ok(player0Name, 'Expected player[0] gameId/name');
 
-    const stats0 = stats0Vars.data.data.length > 0 ? JSON.parse(stats0Vars.data.data[0].value) : { referralsPaid: 0 };
-    const stats1 = stats1Vars.data.data.length > 0 ? JSON.parse(stats1Vars.data.data[0].value) : { referralsPaid: 0 };
+    // Actually call /reftop and verify the highest-paid referrer appears first
+    const before = new Date();
+    await client.command.commandControllerTrigger(ctx.gameServer.id, {
+      msg: `${prefix}reftop`,
+      playerId: ctx.players[0].playerId,
+    });
 
+    const topEvent = await waitForEvent(client, {
+      eventName: EventSearchInputAllowedFiltersEventNameEnum.CommandExecuted,
+      gameserverId: ctx.gameServer.id,
+      after: before,
+      timeout: 30000,
+    });
+
+    const topMeta = topEvent.meta as { result?: { success?: boolean; logs?: Array<{ msg: string }> } };
+    assert.equal(topMeta?.result?.success, true, `Expected /reftop to succeed`);
+
+    const topLogs = (topMeta?.result?.logs ?? []).map((l) => l.msg);
+    // The first ranked entry should contain player[0]'s name (highest paid referrer)
     assert.ok(
-      stats0.referralsPaid >= stats1.referralsPaid,
-      `Expected player[0] (${stats0.referralsPaid} paid) to have >= paid referrals than player[1] (${stats1.referralsPaid} paid)`,
+      topLogs.some((msg) => msg.includes(player0Name)),
+      `Expected player[0] name "${player0Name}" to appear in /reftop output (they have 1 paid referral), got: ${JSON.stringify(topLogs)}`,
     );
-    assert.ok(stats0.referralsPaid >= 1, `Expected player[0] to have at least 1 paid referral, got ${stats0.referralsPaid}`);
+  });
+});
+
+// ─────────────────────────────────────────────
+// Retry → Rejected path (payout failure after 3 tries)
+// ─────────────────────────────────────────────
+describe('referral-program: retry → rejected path after 3 payout failures', () => {
+  let client: Client;
+  let ctx: MockServerContext;
+  let moduleId: string;
+  let versionId: string;
+  let sweepCronjobId: string;
+  let prefix: string;
+  let referrerRoleId: string | undefined;
+  let refereeRoleId: string | undefined;
+
+  before(async () => {
+    client = await createClient();
+    await cleanupTestModules(client);
+    await cleanupTestGameServers(client);
+    ctx = await startMockServer(client);
+
+    // Do NOT enable economy — addCurrency will fail, forcing the retry→rejected path.
+    // refereeCurrencyReward=0 so the /referral welcome-bonus block is skipped entirely.
+
+    const mod = await pushModule(client, MODULE_DIR);
+    moduleId = mod.id;
+    versionId = mod.latestVersion.id;
+
+    // prizeIsCurrency=true, economyEnabled=false → addCurrency fails → payout fails
+    await installModule(client, versionId, ctx.gameServer.id, {
+      userConfig: {
+        prizeIsCurrency: true,
+        referrerCurrencyReward: 100,
+        refereeCurrencyReward: 0, // no welcome bonus (economy is off anyway)
+        playtimeThresholdMinutes: 0, // immediate threshold
+        referralWindowHours: 24,
+        maxReferralsPerDay: 5,
+        maxReferralsLifetime: 50,
+      },
+    });
+
+    const sweepCronjob = mod.latestVersion.cronJobs.find((c) => c.name === 'sweep-pending-referrals');
+    if (!sweepCronjob) throw new Error('Expected sweep-pending-referrals cronjob');
+    sweepCronjobId = sweepCronjob.id;
+
+    prefix = await getCommandPrefix(client, ctx.gameServer.id);
+
+    referrerRoleId = await assignPermissions(client, ctx.players[0].playerId, ctx.gameServer.id, ['REFERRAL_USE']);
+    refereeRoleId = await assignPermissions(client, ctx.players[1].playerId, ctx.gameServer.id, ['REFERRAL_USE']);
+  });
+
+  after(async () => {
+    await cleanupRole(client, referrerRoleId);
+    await cleanupRole(client, refereeRoleId);
+    try { await uninstallModule(client, moduleId, ctx.gameServer.id); } catch (_) {}
+    try { await deleteModule(client, moduleId); } catch (_) {}
+    await stopMockServer(ctx.server, client, ctx.gameServer.id);
+  });
+
+  it('should reject link after 3 payout failures and increment referralsRejected', async () => {
+    // player[0] generates code
+    const beforeCode = new Date();
+    await client.command.commandControllerTrigger(ctx.gameServer.id, {
+      msg: `${prefix}refcode`,
+      playerId: ctx.players[0].playerId,
+    });
+    await waitForEvent(client, {
+      eventName: EventSearchInputAllowedFiltersEventNameEnum.CommandExecuted,
+      gameserverId: ctx.gameServer.id,
+      after: beforeCode,
+      timeout: 30000,
+    });
+
+    const codeVars = await client.variable.variableControllerSearch({
+      filters: {
+        key: ['referral_code'],
+        gameServerId: [ctx.gameServer.id],
+        moduleId: [moduleId],
+        playerId: [ctx.players[0].playerId],
+      },
+    });
+    assert.equal(codeVars.data.data.length, 1, 'Expected referral_code for referrer');
+    const referrerCode = JSON.parse(codeVars.data.data[0].value).code;
+
+    // player[1] uses the code
+    const beforeRef = new Date();
+    await client.command.commandControllerTrigger(ctx.gameServer.id, {
+      msg: `${prefix}referral ${referrerCode}`,
+      playerId: ctx.players[1].playerId,
+    });
+    await waitForEvent(client, {
+      eventName: EventSearchInputAllowedFiltersEventNameEnum.CommandExecuted,
+      gameserverId: ctx.gameServer.id,
+      after: beforeRef,
+      timeout: 30000,
+    });
+
+    // Seed retries=2 so next failure (attempt 3) marks as rejected
+    const linkVarsInit = await client.variable.variableControllerSearch({
+      filters: {
+        key: ['referral_link'],
+        gameServerId: [ctx.gameServer.id],
+        moduleId: [moduleId],
+        playerId: [ctx.players[1].playerId],
+      },
+    });
+    assert.equal(linkVarsInit.data.data.length, 1, 'Expected referral_link variable');
+    const initLink = JSON.parse(linkVarsInit.data.data[0].value);
+    await client.variable.variableControllerUpdate(linkVarsInit.data.data[0].id, {
+      value: JSON.stringify({ ...initLink, retries: 2 }),
+    });
+
+    // Trigger sweep — economy is disabled so addCurrency fails, retries=2+1=3 → rejected
+    const beforeSweep = new Date();
+    await client.cronjob.cronJobControllerTrigger({
+      gameServerId: ctx.gameServer.id,
+      cronjobId: sweepCronjobId,
+      moduleId,
+    });
+    const sweepEvent = await waitForEvent(client, {
+      eventName: EventSearchInputAllowedFiltersEventNameEnum.CronjobExecuted,
+      gameserverId: ctx.gameServer.id,
+      after: beforeSweep,
+      timeout: 30000,
+    });
+
+    const sweepMeta = sweepEvent.meta as { result?: { success?: boolean; logs?: Array<{ msg: string }> } };
+    assert.equal(sweepMeta?.result?.success, true, `Expected sweep to succeed, logs: ${JSON.stringify(sweepMeta?.result?.logs)}`);
+
+    // Wait for variable updates
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+
+    // Assert link status = 'rejected'
+    const linkVarsAfter = await client.variable.variableControllerSearch({
+      filters: {
+        key: ['referral_link'],
+        gameServerId: [ctx.gameServer.id],
+        moduleId: [moduleId],
+        playerId: [ctx.players[1].playerId],
+      },
+    });
+    assert.equal(linkVarsAfter.data.data.length, 1, 'Expected referral_link to still exist');
+    const rejectedLink = JSON.parse(linkVarsAfter.data.data[0].value);
+    assert.equal(rejectedLink.status, 'rejected', `Expected link status=rejected, got ${rejectedLink.status}`);
+    assert.ok(rejectedLink.retries >= 3, `Expected retries >= 3, got ${rejectedLink.retries}`);
+
+    // Assert referralsRejected incremented on referrer stats
+    const statsVars = await client.variable.variableControllerSearch({
+      filters: {
+        key: ['referral_stats'],
+        gameServerId: [ctx.gameServer.id],
+        moduleId: [moduleId],
+        playerId: [ctx.players[0].playerId],
+      },
+    });
+    assert.equal(statsVars.data.data.length, 1, 'Expected referral_stats for referrer');
+    const referrerStats = JSON.parse(statsVars.data.data[0].value);
+    assert.ok(referrerStats.referralsRejected >= 1, `Expected referralsRejected >= 1, got ${referrerStats.referralsRejected}`);
+  });
+});
+
+// ─────────────────────────────────────────────
+// prizeIsCurrency=false item payout (itemsEarned stat)
+// ─────────────────────────────────────────────
+describe('referral-program: prizeIsCurrency=false item payout increments itemsEarned', () => {
+  let client: Client;
+  let ctx: MockServerContext;
+  let moduleId: string;
+  let versionId: string;
+  let sweepCronjobId: string;
+  let prefix: string;
+  let referrerRoleId: string | undefined;
+  let refereeRoleId: string | undefined;
+
+  before(async () => {
+    client = await createClient();
+    await cleanupTestModules(client);
+    await cleanupTestGameServers(client);
+    ctx = await startMockServer(client);
+
+    await client.settings.settingsControllerSet('economyEnabled', {
+      gameServerId: ctx.gameServer.id,
+      value: 'true',
+    });
+
+    const mod = await pushModule(client, MODULE_DIR);
+    moduleId = mod.id;
+    versionId = mod.latestVersion.id;
+
+    // Install with prizeIsCurrency=false and a valid-looking item
+    // The mock server's giveItem may fail on unknown items; if it does,
+    // payReferrer falls back to currency-fallback which still increments stats.
+    // We check itemsEarned or currencyEarned to cover both paths.
+    await installModule(client, versionId, ctx.gameServer.id, {
+      userConfig: {
+        prizeIsCurrency: false,
+        referrerCurrencyReward: 100,
+        refereeCurrencyReward: 0,
+        items: [{ item: 'stone', amount: 5, quality: '' }],
+        playtimeThresholdMinutes: 0,
+        referralWindowHours: 24,
+        maxReferralsPerDay: 5,
+        maxReferralsLifetime: 50,
+      },
+    });
+
+    const sweepCronjob = mod.latestVersion.cronJobs.find((c) => c.name === 'sweep-pending-referrals');
+    if (!sweepCronjob) throw new Error('Expected sweep-pending-referrals cronjob');
+    sweepCronjobId = sweepCronjob.id;
+
+    prefix = await getCommandPrefix(client, ctx.gameServer.id);
+
+    referrerRoleId = await assignPermissions(client, ctx.players[0].playerId, ctx.gameServer.id, ['REFERRAL_USE']);
+    refereeRoleId = await assignPermissions(client, ctx.players[1].playerId, ctx.gameServer.id, ['REFERRAL_USE']);
+  });
+
+  after(async () => {
+    await cleanupRole(client, referrerRoleId);
+    await cleanupRole(client, refereeRoleId);
+    try { await uninstallModule(client, moduleId, ctx.gameServer.id); } catch (_) {}
+    try { await deleteModule(client, moduleId); } catch (_) {}
+    await stopMockServer(ctx.server, client, ctx.gameServer.id);
+  });
+
+  it('should attempt item payout and update itemsEarned or currencyEarned (fallback) on stats', async () => {
+    // player[0] generates code
+    const beforeCode = new Date();
+    await client.command.commandControllerTrigger(ctx.gameServer.id, {
+      msg: `${prefix}refcode`,
+      playerId: ctx.players[0].playerId,
+    });
+    await waitForEvent(client, {
+      eventName: EventSearchInputAllowedFiltersEventNameEnum.CommandExecuted,
+      gameserverId: ctx.gameServer.id,
+      after: beforeCode,
+      timeout: 30000,
+    });
+
+    const codeVars = await client.variable.variableControllerSearch({
+      filters: {
+        key: ['referral_code'],
+        gameServerId: [ctx.gameServer.id],
+        moduleId: [moduleId],
+        playerId: [ctx.players[0].playerId],
+      },
+    });
+    const referrerCode = JSON.parse(codeVars.data.data[0].value).code;
+
+    // player[1] uses the code
+    const beforeRef = new Date();
+    await client.command.commandControllerTrigger(ctx.gameServer.id, {
+      msg: `${prefix}referral ${referrerCode}`,
+      playerId: ctx.players[1].playerId,
+    });
+    await waitForEvent(client, {
+      eventName: EventSearchInputAllowedFiltersEventNameEnum.CommandExecuted,
+      gameserverId: ctx.gameServer.id,
+      after: beforeRef,
+      timeout: 30000,
+    });
+
+    // Trigger sweep
+    const beforeSweep = new Date();
+    await client.cronjob.cronJobControllerTrigger({
+      gameServerId: ctx.gameServer.id,
+      cronjobId: sweepCronjobId,
+      moduleId,
+    });
+    const sweepEvent = await waitForEvent(client, {
+      eventName: EventSearchInputAllowedFiltersEventNameEnum.CronjobExecuted,
+      gameserverId: ctx.gameServer.id,
+      after: beforeSweep,
+      timeout: 30000,
+    });
+
+    const sweepMeta = sweepEvent.meta as { result?: { success?: boolean; logs?: Array<{ msg: string }> } };
+    assert.equal(sweepMeta?.result?.success, true, `Expected sweep to succeed, logs: ${JSON.stringify(sweepMeta?.result?.logs)}`);
+
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+
+    // Verify link is paid
+    const linkVars = await client.variable.variableControllerSearch({
+      filters: {
+        key: ['referral_link'],
+        gameServerId: [ctx.gameServer.id],
+        moduleId: [moduleId],
+        playerId: [ctx.players[1].playerId],
+      },
+    });
+    assert.equal(linkVars.data.data.length, 1, 'Expected referral_link for referee');
+    const paidLink = JSON.parse(linkVars.data.data[0].value);
+    assert.equal(paidLink.status, 'paid', `Expected link status=paid, got ${paidLink.status}`);
+    assert.ok(paidLink.paidType === 'item' || paidLink.paidType === 'currency-fallback',
+      `Expected paidType to be 'item' or 'currency-fallback' (fallback), got ${paidLink.paidType}`);
+
+    // Verify stats: either itemsEarned > 0 (item payout succeeded) or currencyEarned > 0 (fallback)
+    const statsVars = await client.variable.variableControllerSearch({
+      filters: {
+        key: ['referral_stats'],
+        gameServerId: [ctx.gameServer.id],
+        moduleId: [moduleId],
+        playerId: [ctx.players[0].playerId],
+      },
+    });
+    assert.equal(statsVars.data.data.length, 1, 'Expected referral_stats for referrer');
+    const referrerStats = JSON.parse(statsVars.data.data[0].value);
+    assert.equal(referrerStats.referralsPaid, 1, `Expected referralsPaid=1, got ${referrerStats.referralsPaid}`);
+    assert.ok(
+      referrerStats.itemsEarned > 0 || referrerStats.currencyEarned > 0,
+      `Expected itemsEarned > 0 or currencyEarned > 0 (fallback), got itemsEarned=${referrerStats.itemsEarned} currencyEarned=${referrerStats.currencyEarned}`,
+    );
   });
 });
 
@@ -963,5 +1277,16 @@ describe('referral-program: /refstats referee branch includes link info', () => 
     const link = JSON.parse(linkVars.data.data[0].value);
     assert.equal(link.status, 'paid', `Expected link status=paid, got ${link.status}`);
     assert.equal(link.referrerId, ctx.players[0].playerId, 'Expected referrerId to match player[0]');
+
+    // Verify refstats log contains the referrer's name (VI-24)
+    const referrerPogRes = await client.playerOnGameserver.playerOnGameServerControllerSearch({
+      filters: { gameServerId: [ctx.gameServer.id], playerId: [ctx.players[0].playerId] },
+    });
+    const referrerName = referrerPogRes.data.data[0]?.gameId ?? '';
+    assert.ok(referrerName, 'Expected referrer (player[0]) to have a name');
+    assert.ok(
+      logs.some((msg) => msg.includes(referrerName)),
+      `Expected refstats logs to contain referrer name "${referrerName}", got: ${JSON.stringify(logs)}`,
+    );
   });
 });

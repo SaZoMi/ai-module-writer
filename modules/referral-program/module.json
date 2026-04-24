@@ -148,19 +148,19 @@
     "reflink": {
       "trigger": "reflink",
       "description": "Admin: Force-link a referee to a referrer and pay both rewards",
-      "helpText": "Usage: /reflink <referee_display_name> <referrer_display_name> — Admin only. Force-creates a paid link using player display names.",
+      "helpText": "Usage: /reflink <referee> <referrer> — Admin only. Provide the full exact display name of each player (case-sensitive). Force-creates a paid link and pays both rewards.",
       "function": "src/commands/reflink/index.js",
       "arguments": [
         {
           "name": "referee",
           "type": "string",
-          "helpText": "Name of the referee player",
+          "helpText": "Full exact display name of the referee player",
           "position": 0
         },
         {
           "name": "referrer",
           "type": "string",
-          "helpText": "Name of the referrer player",
+          "helpText": "Full exact display name of the referrer player",
           "position": 1
         }
       ]
@@ -168,13 +168,13 @@
     "refunlink": {
       "trigger": "refunlink",
       "description": "Admin: Remove a referral link for a referee",
-      "helpText": "Usage: /refunlink <referee_display_name> — Admin only. Removes the referral link for the specified player (by display name).",
+      "helpText": "Usage: /refunlink <referee> — Admin only. Provide the full exact display name of the referee player (case-sensitive). Removes their referral link.",
       "function": "src/commands/refunlink/index.js",
       "arguments": [
         {
           "name": "referee",
           "type": "string",
-          "helpText": "Name of the referee player to unlink",
+          "helpText": "Full exact display name of the referee player to unlink",
           "position": 0
         }
       ]

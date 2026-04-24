@@ -4,7 +4,6 @@ import {
   setReferralLink,
   getPlayerStats,
   setPlayerStats,
-  removeFromPendingIndex,
   payReferrer,
   findPlayerByName,
   getVipMultiplier,
@@ -94,9 +93,6 @@ async function main() {
     paidAmount: payResult.paidAmount,
     paidType: payResult.type,
   });
-
-  // Remove from pending index if it was there
-  await removeFromPendingIndex(gameServerId, moduleId, refereePlayerId);
 
   // Update referrer stats
   const referrerStats = await getPlayerStats(gameServerId, moduleId, referrerPlayerId);

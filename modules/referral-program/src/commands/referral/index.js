@@ -5,9 +5,53 @@ import {
   setReferralLink,
   getPlayerStats,
   setPlayerStats,
-  addToPendingIndex,
+  findVariable,
+  writeVariable,
   todayUTC,
 } from './referral-helpers.js';
+
+// Rate limit: per-player tracking of invalid code attempts (VI-11)
+const RATE_LIMIT_KEY_PREFIX = 'referral_rate_limit';
+const RATE_LIMIT_MAX_ATTEMPTS = 10;
+const RATE_LIMIT_WINDOW_MS = 60 * 1000; // 60 seconds
+
+async function checkRateLimit(gameServerId, moduleId, playerId) {
+  try {
+    const rateLimitKey = `${RATE_LIMIT_KEY_PREFIX}:${playerId}`;
+    const rateLimitVar = await findVariable(gameServerId, moduleId, rateLimitKey, playerId);
+    let rateData = { attempts: 0, windowStart: Date.now() };
+    if (rateLimitVar) {
+      try { rateData = JSON.parse(rateLimitVar.value); } catch (_) {}
+    }
+    // Reset window if expired
+    if (Date.now() - rateData.windowStart > RATE_LIMIT_WINDOW_MS) {
+      rateData = { attempts: 0, windowStart: Date.now() };
+    }
+    return rateData;
+  } catch (err) {
+    console.warn(`referral: checkRateLimit failed (non-fatal): ${err}`);
+    return { attempts: 0, windowStart: Date.now() };
+  }
+}
+
+async function incrementRateLimit(gameServerId, moduleId, playerId, rateData) {
+  try {
+    const rateLimitKey = `${RATE_LIMIT_KEY_PREFIX}:${playerId}`;
+    rateData.attempts += 1;
+    await writeVariable(gameServerId, moduleId, rateLimitKey, rateData, playerId);
+  } catch (err) {
+    console.warn(`referral: incrementRateLimit failed (non-fatal): ${err}`);
+  }
+}
+
+async function resetRateLimit(gameServerId, moduleId, playerId) {
+  try {
+    const rateLimitKey = `${RATE_LIMIT_KEY_PREFIX}:${playerId}`;
+    await writeVariable(gameServerId, moduleId, rateLimitKey, { attempts: 0, windowStart: Date.now() }, playerId);
+  } catch (err) {
+    console.warn(`referral: resetRateLimit failed (non-fatal): ${err}`);
+  }
+}
 
 async function main() {
   const { pog, player, gameServerId, arguments: args, module: mod } = data;
@@ -23,10 +67,25 @@ async function main() {
     throw new TakaroUserError('Usage: /referral <code> — Provide the referral code from the player who invited you.');
   }
 
+  // Rate limit: track invalid code attempts per player (VI-11)
+  const rateData = await checkRateLimit(gameServerId, moduleId, player.id);
+
   // Look up who owns this code
   const codeLookup = await lookupCode(gameServerId, moduleId, code);
   if (!codeLookup) {
+    await incrementRateLimit(gameServerId, moduleId, player.id, rateData);
+
+    if ((rateData.attempts + 1) > RATE_LIMIT_MAX_ATTEMPTS) {
+      const remainingMs = RATE_LIMIT_WINDOW_MS - (Date.now() - rateData.windowStart);
+      const remainingSec = Math.ceil(remainingMs / 1000);
+      throw new TakaroUserError(`Too many invalid code attempts. Please wait ${remainingSec} seconds before trying again.`);
+    }
     throw new TakaroUserError(`Referral code "${code}" was not found. Check the code and try again.`);
+  }
+
+  // Reset rate limit counter on successful code lookup
+  if (rateData.attempts > 0) {
+    await resetRateLimit(gameServerId, moduleId, player.id);
   }
 
   const referrerId = codeLookup.playerId;
@@ -106,11 +165,10 @@ async function main() {
   };
   await setPlayerStats(gameServerId, moduleId, referrerId, updatedReferrerStats);
 
-  // Add referee to pending index
-  await addToPendingIndex(gameServerId, moduleId, player.id);
-
   // Pay referee welcome bonus (always currency regardless of prizeIsCurrency setting)
-  // VI-23: fail the command (no success PM) when grant throws
+  // Per spec: fail the command when the welcome bonus grant throws so the player knows
+  // something went wrong. The link is already written at this point; if needed an admin
+  // can use /refunlink and have the player retry.
   const welcomeBonus = config.refereeCurrencyReward || 0;
   if (welcomeBonus > 0) {
     try {
@@ -120,7 +178,7 @@ async function main() {
       console.log(`referral: welcome bonus paid to referee=${player.name}, amount=${welcomeBonus}`);
     } catch (err) {
       console.error(`referral: failed to pay welcome bonus to referee=${player.name}: ${err}`);
-      // Don't throw — the link is created; the welcome bonus is best-effort
+      throw new TakaroUserError(`Referral code applied, but we could not deliver your welcome bonus (${welcomeBonus} currency). Please contact an admin. Error: ${err?.message ?? err}`);
     }
   }
 
@@ -130,15 +188,14 @@ async function main() {
     ? `${(config.playtimeThresholdMinutes / 60).toFixed(1)}h`
     : `${config.playtimeThresholdMinutes}min`;
 
-  // VI-16: Interpolate reward type for the referrer reward in the PM
   const referrerRewardDesc = config.prizeIsCurrency
     ? `${config.referrerCurrencyReward} currency`
-    : 'items from the prize pool';
+    : 'a random item reward';
 
-  // VI-39: Omit welcome bonus sentence when welcomeBonus === 0
+  // Omit welcome bonus sentence when welcomeBonus === 0
   let pmMsg = `Referral code applied!`;
   if (welcomeBonus > 0) {
-    pmMsg += ` You received a welcome bonus of ${welcomeBonus} currency (currency reward).`;
+    pmMsg += ` You received a welcome bonus of ${welcomeBonus} currency.`;
   }
   pmMsg += `\nYour referrer will earn ${referrerRewardDesc} once you've played ${thresholdMsg} on this server.`;
 

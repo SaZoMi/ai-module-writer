@@ -63,15 +63,25 @@ export async function pushModule(
     }
 
     // Import via API (returns void — second search below retrieves the module data)
+    // On 409 Conflict (module with same name exists from a concurrent cleanup), retry once with delete.
     try {
       await client.module.moduleControllerImport(moduleJson);
-    } catch (err) {
-      if (existingModule) {
+    } catch (err: any) {
+      if (err?.response?.status === 409) {
+        // Race: another suite's cleanup left a module with this name. Delete and retry.
+        const conflict = await client.module.moduleControllerSearch({ filters: { name: [name] } });
+        const conflictMod = conflict.data.data.find((m) => m.name === name);
+        if (conflictMod) {
+          await client.module.moduleControllerRemove(conflictMod.id);
+        }
+        await client.module.moduleControllerImport(moduleJson);
+      } else if (existingModule) {
         throw new Error(
           `Import of '${name}' failed. Previous module version was deleted before this import failure. Cause: ${err}`,
         );
+      } else {
+        throw err;
       }
-      throw err;
     }
 
     // Find the module by name after import (import API returns void, no module data in response)

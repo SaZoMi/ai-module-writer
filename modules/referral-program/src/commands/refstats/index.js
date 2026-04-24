@@ -32,9 +32,9 @@ async function main() {
     lines.push(`Items earned: ${stats.itemsEarned}`);
   }
 
+  let referrerName = 'a player';
   if (myLink) {
-    // VI-12: Fetch referrer name instead of "a player"
-    let referrerName = 'a player';
+    // Fetch referrer name
     try {
       const referrerRes = await takaro.player.playerControllerGetOne(myLink.referrerId);
       if (referrerRes.data.data && referrerRes.data.data.name) {
@@ -44,10 +44,10 @@ async function main() {
       console.error(`refstats: failed to fetch referrer name for ${myLink.referrerId}: ${err}`);
     }
 
-    // VI-12: Surface user-friendly status; paid and rejected both look like "completed" to referee
+    // Surface user-friendly status labels to the referee
     let statusLabel;
     if (myLink.status === 'pending') {
-      // VI-30: Show playtime progress for pending links
+      // Show playtime progress for pending links
       let progressMsg = '';
       try {
         const pogRes = await takaro.playerOnGameserver.playerOnGameServerControllerSearch({
@@ -61,10 +61,15 @@ async function main() {
           progressMsg = ` (${gainedMinutes.toFixed(0)} / ${threshold} minutes played)`;
         }
       } catch (_) {}
-      statusLabel = `pending${progressMsg}`;
-    } else {
-      // 'paid' and 'rejected' both show as 'completed' for the referee
+      statusLabel = `pending...${progressMsg}`;
+    } else if (myLink.status === 'in-flight') {
+      statusLabel = 'processing';
+    } else if (myLink.status === 'paid') {
       statusLabel = 'completed';
+    } else if (myLink.status === 'rejected') {
+      statusLabel = 'did not qualify';
+    } else {
+      statusLabel = myLink.status;
     }
 
     lines.push(`You were referred by: ${referrerName} (link status: ${statusLabel})`);
@@ -72,7 +77,8 @@ async function main() {
     lines.push(`You were referred by: nobody`);
   }
 
-  console.log(`refstats: player=${player.name} referralsTotal=${stats.referralsTotal} referralsPaid=${stats.referralsPaid} currencyEarned=${stats.currencyEarned}`);
+  const referrerInfo = myLink ? `referredBy=${referrerName}` : 'referredBy=none';
+  console.log(`refstats: player=${player.name} referralsTotal=${stats.referralsTotal} referralsPaid=${stats.referralsPaid} currencyEarned=${stats.currencyEarned} ${referrerInfo}`);
 
   await pog.pm(lines.join('\n'));
 }

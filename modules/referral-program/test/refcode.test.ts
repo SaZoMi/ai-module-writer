@@ -85,30 +85,33 @@ describe('referral-program: /refcode command', () => {
     await stopMockServer(ctx.server, client, ctx.gameServer.id);
   });
 
-  it('should generate a referral code for a new player', async () => {
+  it('should generate a referral code and return existing code on second call (idempotent)', async () => {
+    // Combined test: first call generates, second call returns the same code.
+    // Merged to eliminate test-order dependency.
     const player = ctx.players[0]!;
-    const before = new Date();
 
+    // --- First call: generate code ---
+    const before1 = new Date();
     await client.command.commandControllerTrigger(ctx.gameServer.id, {
       msg: `${prefix}refcode`,
       playerId: player.playerId,
     });
 
-    const event = await waitForEvent(client, {
+    const event1 = await waitForEvent(client, {
       eventName: EventSearchInputAllowedFiltersEventNameEnum.CommandExecuted,
       gameserverId: ctx.gameServer.id,
-      after: before,
+      after: before1,
       timeout: 30000,
     });
 
-    assert.ok(event, 'Expected a command-executed event');
-    const meta = event.meta as { result?: { success?: boolean; logs?: Array<{ msg: string }> } };
-    assert.equal(meta?.result?.success, true, `Expected command to succeed, logs: ${JSON.stringify(meta?.result?.logs)}`);
+    assert.ok(event1, 'Expected a command-executed event');
+    const meta1 = event1.meta as { result?: { success?: boolean; logs?: Array<{ msg: string }> } };
+    assert.equal(meta1?.result?.success, true, `Expected command to succeed, logs: ${JSON.stringify(meta1?.result?.logs)}`);
 
-    const logs = (meta?.result?.logs ?? []).map((l) => l.msg);
+    const logs1 = (meta1?.result?.logs ?? []).map((l) => l.msg);
     assert.ok(
-      logs.some((msg) => msg.includes('generated code=')),
-      `Expected log to include "generated code=", got: ${JSON.stringify(logs)}`,
+      logs1.some((msg) => msg.includes('generated code=')),
+      `Expected log to include "generated code=", got: ${JSON.stringify(logs1)}`,
     );
 
     // Verify variable was stored
@@ -124,36 +127,32 @@ describe('referral-program: /refcode command', () => {
     const storedCode = JSON.parse(codeVars.data.data[0].value);
     assert.ok(storedCode.code, 'Expected stored code to have a code property');
     assert.equal(storedCode.code.length, 6, 'Expected code to be 6 characters');
-  });
 
-  it('should return existing code on second call (idempotent)', async () => {
-    // Depends on previous test: player[0] already has a code
-    const player = ctx.players[0]!;
-    const before = new Date();
-
+    // --- Second call: should return existing code (idempotent) ---
+    const before2 = new Date();
     await client.command.commandControllerTrigger(ctx.gameServer.id, {
       msg: `${prefix}refcode`,
       playerId: player.playerId,
     });
 
-    const event = await waitForEvent(client, {
+    const event2 = await waitForEvent(client, {
       eventName: EventSearchInputAllowedFiltersEventNameEnum.CommandExecuted,
       gameserverId: ctx.gameServer.id,
-      after: before,
+      after: before2,
       timeout: 30000,
     });
 
-    const meta = event.meta as { result?: { success?: boolean; logs?: Array<{ msg: string }> } };
-    assert.equal(meta?.result?.success, true, `Expected command to succeed on second call`);
+    const meta2 = event2.meta as { result?: { success?: boolean; logs?: Array<{ msg: string }> } };
+    assert.equal(meta2?.result?.success, true, `Expected command to succeed on second call`);
 
-    const logs = (meta?.result?.logs ?? []).map((l) => l.msg);
+    const logs2 = (meta2?.result?.logs ?? []).map((l) => l.msg);
     assert.ok(
-      logs.some((msg) => msg.includes('existing code=')),
-      `Expected log to include "existing code=", got: ${JSON.stringify(logs)}`,
+      logs2.some((msg) => msg.includes('existing code=')),
+      `Expected log to include "existing code=", got: ${JSON.stringify(logs2)}`,
     );
 
     // Still only one variable for this player
-    const codeVars = await client.variable.variableControllerSearch({
+    const codeVarsAfter = await client.variable.variableControllerSearch({
       filters: {
         key: ['referral_code'],
         gameServerId: [ctx.gameServer.id],
@@ -161,7 +160,7 @@ describe('referral-program: /refcode command', () => {
         playerId: [player.playerId],
       },
     });
-    assert.equal(codeVars.data.data.length, 1, 'Expected only one referral_code variable (idempotent)');
+    assert.equal(codeVarsAfter.data.data.length, 1, 'Expected only one referral_code variable (idempotent)');
   });
 
   it('should deny /refcode without REFERRAL_USE permission', async () => {

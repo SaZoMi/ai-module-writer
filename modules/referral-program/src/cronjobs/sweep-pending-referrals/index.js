@@ -2,7 +2,6 @@ import { data } from '@takaro/helpers';
 import {
   getAllPendingRefereeIds,
   checkAndPayReferral,
-  removeFromPendingIndex,
 } from './referral-helpers.js';
 
 async function main() {
@@ -37,8 +36,6 @@ async function main() {
       else if (result === 'in-flight') inFlight++;
       else if (result === 'no-link') {
         noLink++;
-        // Clean up stale index entry
-        await removeFromPendingIndex(gameServerId, moduleId, refereeId);
       }
     } catch (err) {
       console.error(`sweep-pending-referrals: error checking referee=${refereeId}: ${err}`);

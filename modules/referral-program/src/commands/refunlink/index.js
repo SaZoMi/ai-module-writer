@@ -4,8 +4,8 @@ import {
   deleteReferralLink,
   getPlayerStats,
   setPlayerStats,
-  removeFromPendingIndex,
   findPlayerByName,
+  todayUTC,
 } from './referral-helpers.js';
 
 async function main() {
@@ -38,16 +38,21 @@ async function main() {
 
   // Remove the link
   await deleteReferralLink(gameServerId, moduleId, refereePlayerId);
-  await removeFromPendingIndex(gameServerId, moduleId, refereePlayerId);
 
   // Decrement referrer stats
   const referrerStats = await getPlayerStats(gameServerId, moduleId, referrerId);
+  const today = todayUTC();
+  // Decrement referralsToday if the link was created today
+  const linkedDay = existingLink.linkedAt ? existingLink.linkedAt.slice(0, 10) : null;
   const updatedStats = {
     ...referrerStats,
     referralsTotal: Math.max(0, referrerStats.referralsTotal - 1),
     referralsPaid: existingLink.status === 'paid'
       ? Math.max(0, referrerStats.referralsPaid - 1)
       : referrerStats.referralsPaid,
+    referralsToday: linkedDay === today
+      ? Math.max(0, (referrerStats.referralsToday || 0) - 1)
+      : referrerStats.referralsToday,
   };
 
   // VI-17: Roll back currencyEarned when link was paid and paidAmount is stored
