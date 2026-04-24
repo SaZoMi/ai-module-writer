@@ -228,13 +228,26 @@ describe('referral-program: admin commands (/reflink, /refunlink)', () => {
   });
 
   it('should find players by display name (primary name-search path)', async () => {
-    // Exercises the primary findPlayerByName path (by player.name, not gameId fallback).
-    // Uses player[0] as admin; player[1] as referee; player[2] as referrer.
-    // Look up their Takaro display names (player.name field, not gameId).
+    // Self-contained: explicitly ensure player[1] has no referral link before running.
+    // Does not rely on test 1 having cleared it via /refunlink (VI-6).
     const admin = ctx.players[0]!;
     const referee = ctx.players[1]!;
     const referrer = ctx.players[2]!;
 
+    // Delete any existing link for player[1] via the API directly so this test is self-contained.
+    const existingLinks = await client.variable.variableControllerSearch({
+      filters: {
+        key: ['referral_link'],
+        gameServerId: [ctx.gameServer.id],
+        moduleId: [moduleId],
+        playerId: [referee.playerId],
+      },
+    });
+    for (const v of existingLinks.data.data) {
+      await client.variable.variableControllerDelete(v.id);
+    }
+
+    // Look up their Takaro display names (player.name field, not gameId).
     const [refereePlayerRes, referrerPlayerRes] = await Promise.all([
       client.player.playerControllerSearch({ filters: { id: [referee.playerId] } }),
       client.player.playerControllerSearch({ filters: { id: [referrer.playerId] } }),
@@ -249,7 +262,6 @@ describe('referral-program: admin commands (/reflink, /refunlink)', () => {
       return;
     }
 
-    // player[1] has no link after previous test (refunlink cleared it)
     // Trigger /reflink using display names
     const before = new Date();
     await client.command.commandControllerTrigger(ctx.gameServer.id, {

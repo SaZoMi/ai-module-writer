@@ -940,3 +940,327 @@ describe('referral-program: item payout currency-fallback when items array empty
     assert.equal(referrerStats.itemsEarned, 0, `Expected itemsEarned=0 for fallback, got ${referrerStats.itemsEarned}`);
   });
 });
+
+// ─────────────────────────────────────────────
+// VI-1: Pre-payout double-payment guard (concurrent in-flight race simulation)
+// Seed an in-flight link with a stale inFlightSince AND a specific claimToken.
+// Then call checkAndPayReferral with a DIFFERENT claimToken to simulate the race.
+// Assert referrer balance increased exactly once.
+// ─────────────────────────────────────────────
+describe('referral-program: pre-payout guard prevents double-payment (VI-1)', () => {
+  let client: Client;
+  let ctx: MockServerContext;
+  let moduleId: string;
+  let versionId: string;
+  let sweepCronjobId: string;
+  let prefix: string;
+  let referrerRoleId: string | undefined;
+  let refereeRoleId: string | undefined;
+
+  before(async () => {
+    client = await createClient();
+    await cleanupTestModules(client);
+    await cleanupTestGameServers(client);
+    ctx = await startMockServer(client);
+
+    await client.settings.settingsControllerSet('economyEnabled', {
+      gameServerId: ctx.gameServer.id,
+      value: 'true',
+    });
+
+    const mod = await pushModule(client, MODULE_DIR);
+    moduleId = mod.id;
+    versionId = mod.latestVersion.id;
+
+    await installModule(client, versionId, ctx.gameServer.id, {
+      userConfig: {
+        prizeIsCurrency: true,
+        referrerCurrencyReward: 300,
+        refereeCurrencyReward: 0,
+        playtimeThresholdMinutes: 0, // immediate so threshold check passes
+        referralWindowHours: 24,
+        maxReferralsPerDay: 5,
+        maxReferralsLifetime: 50,
+      },
+    });
+
+    const sweepCronjob = mod.latestVersion.cronJobs.find((c) => c.name === 'sweep-pending-referrals');
+    if (!sweepCronjob) throw new Error('Expected sweep-pending-referrals cronjob');
+    sweepCronjobId = sweepCronjob.id;
+
+    prefix = await getCommandPrefix(client, ctx.gameServer.id);
+
+    referrerRoleId = await assignPermissions(client, ctx.players[0].playerId, ctx.gameServer.id, ['REFERRAL_USE']);
+    refereeRoleId = await assignPermissions(client, ctx.players[1].playerId, ctx.gameServer.id, ['REFERRAL_USE']);
+  });
+
+  after(async () => {
+    await cleanupRole(client, referrerRoleId);
+    await cleanupRole(client, refereeRoleId);
+    try { await uninstallModule(client, moduleId, ctx.gameServer.id); } catch (_) {}
+    try { await deleteModule(client, moduleId); } catch (_) {}
+    await stopMockServer(ctx.server, client, ctx.gameServer.id);
+  });
+
+  it('referrer balance increases exactly once even when in-flight link has stale claimToken race', async () => {
+    // Step 1: Generate code for player[0] (referrer)
+    const beforeCode = new Date();
+    await client.command.commandControllerTrigger(ctx.gameServer.id, {
+      msg: `${prefix}refcode`,
+      playerId: ctx.players[0].playerId,
+    });
+    await waitForEvent(client, {
+      eventName: EventSearchInputAllowedFiltersEventNameEnum.CommandExecuted,
+      gameserverId: ctx.gameServer.id,
+      after: beforeCode,
+      timeout: 30000,
+    });
+
+    const codeVars = await client.variable.variableControllerSearch({
+      filters: {
+        key: ['referral_code'],
+        gameServerId: [ctx.gameServer.id],
+        moduleId: [moduleId],
+        playerId: [ctx.players[0].playerId],
+      },
+    });
+    const referrerCode = JSON.parse(codeVars.data.data[0].value).code;
+
+    // Step 2: player[1] links to create a pending record
+    const beforeRef = new Date();
+    await client.command.commandControllerTrigger(ctx.gameServer.id, {
+      msg: `${prefix}referral ${referrerCode}`,
+      playerId: ctx.players[1].playerId,
+    });
+    await waitForEvent(client, {
+      eventName: EventSearchInputAllowedFiltersEventNameEnum.CommandExecuted,
+      gameserverId: ctx.gameServer.id,
+      after: beforeRef,
+      timeout: 30000,
+    });
+
+    // Step 3: Record referrer's balance BEFORE any payout
+    const pogBefore = await client.playerOnGameserver.playerOnGameServerControllerSearch({
+      filters: { gameServerId: [ctx.gameServer.id], playerId: [ctx.players[0].playerId] },
+    });
+    const balanceBefore = pogBefore.data.data[0]?.currency ?? 0;
+
+    // Step 4: Seed the link as 'in-flight' with a stale claimToken and stale inFlightSince (6 min ago).
+    // This simulates the state where worker A claimed in-flight but then crashed/was reclaimed.
+    // A new sweep worker should detect that its claimToken doesn't match and NOT pay (pre-payout guard).
+    // BUT: since the link is stale (>5min), getAllPendingRefereeIds will first reset it back to 'pending'.
+    // Then the sweep will claim it properly and pay exactly once.
+    const linkVarsInit = await client.variable.variableControllerSearch({
+      filters: {
+        key: ['referral_link'],
+        gameServerId: [ctx.gameServer.id],
+        moduleId: [moduleId],
+        playerId: [ctx.players[1].playerId],
+      },
+    });
+    assert.equal(linkVarsInit.data.data.length, 1, 'Expected referral_link variable');
+    const initLink = JSON.parse(linkVarsInit.data.data[0].value);
+
+    // Seed as in-flight with a specific stale token and stale timestamp (6 min old)
+    const sixMinutesAgo = Date.now() - 6 * 60 * 1000;
+    await client.variable.variableControllerUpdate(linkVarsInit.data.data[0].id, {
+      value: JSON.stringify({
+        ...initLink,
+        status: 'in-flight',
+        claimToken: 'stale-race-token-abc123',
+        inFlightSince: sixMinutesAgo,
+        retries: 0,
+      }),
+    });
+
+    // Step 5: Trigger sweep — should reclaim stale in-flight → pending, then pay exactly once
+    const beforeSweep = new Date();
+    await client.cronjob.cronJobControllerTrigger({
+      gameServerId: ctx.gameServer.id,
+      cronjobId: sweepCronjobId,
+      moduleId,
+    });
+    await waitForEvent(client, {
+      eventName: EventSearchInputAllowedFiltersEventNameEnum.CronjobExecuted,
+      gameserverId: ctx.gameServer.id,
+      after: beforeSweep,
+      timeout: 30000,
+    });
+
+    // Step 6: Poll until link is 'paid'
+    await pollUntil(async () => {
+      const vars = await client.variable.variableControllerSearch({
+        filters: {
+          key: ['referral_link'],
+          gameServerId: [ctx.gameServer.id],
+          moduleId: [moduleId],
+          playerId: [ctx.players[1].playerId],
+        },
+      });
+      if (vars.data.data.length === 0) return false;
+      const link = JSON.parse(vars.data.data[0].value);
+      return link.status === 'paid';
+    }, { timeout: 20000, interval: 300 });
+
+    // Step 7: Assert referrer balance increased EXACTLY by referrerCurrencyReward (300), not double (600)
+    const balanceAfter = await pollUntil(
+      async () => {
+        const pogAfter = await client.playerOnGameserver.playerOnGameServerControllerSearch({
+          filters: { gameServerId: [ctx.gameServer.id], playerId: [ctx.players[0].playerId] },
+        });
+        const bal = pogAfter.data.data[0]?.currency ?? 0;
+        return bal > balanceBefore ? bal : null;
+      },
+      { timeout: 15000, interval: 200 },
+    );
+
+    assert.equal(
+      balanceAfter,
+      balanceBefore + 300,
+      `Expected balance to increase by exactly 300 (one payout), got ${balanceBefore} -> ${balanceAfter}`,
+    );
+
+    // Also assert referralsPaid === 1 (not 2)
+    const statsVars = await client.variable.variableControllerSearch({
+      filters: {
+        key: ['referral_stats'],
+        gameServerId: [ctx.gameServer.id],
+        moduleId: [moduleId],
+        playerId: [ctx.players[0].playerId],
+      },
+    });
+    const referrerStats = JSON.parse(statsVars.data.data[0].value);
+    assert.equal(referrerStats.referralsPaid, 1, `Expected referralsPaid=1 (exactly one payout), got ${referrerStats.referralsPaid}`);
+  });
+});
+
+// ─────────────────────────────────────────────
+// VI-2 + VI-3: Concurrent stat updates — two /referral calls for same referrer code
+// Assert referralsTotal === 2 (not 1 due to last-writer-wins).
+// ─────────────────────────────────────────────
+describe('referral-program: concurrent stat updates do not lose increments (VI-2, VI-3)', () => {
+  let client: Client;
+  let ctx: MockServerContext;
+  let moduleId: string;
+  let versionId: string;
+  let prefix: string;
+  let referrerRoleId: string | undefined;
+  let referee1RoleId: string | undefined;
+  let referee2RoleId: string | undefined;
+
+  before(async () => {
+    client = await createClient();
+    await cleanupTestModules(client);
+    await cleanupTestGameServers(client);
+    ctx = await startMockServer(client);
+
+    await client.settings.settingsControllerSet('economyEnabled', {
+      gameServerId: ctx.gameServer.id,
+      value: 'true',
+    });
+
+    const mod = await pushModule(client, MODULE_DIR);
+    moduleId = mod.id;
+    versionId = mod.latestVersion.id;
+
+    await installModule(client, versionId, ctx.gameServer.id, {
+      userConfig: {
+        prizeIsCurrency: true,
+        referrerCurrencyReward: 100,
+        refereeCurrencyReward: 0,
+        playtimeThresholdMinutes: 9999, // high so no payout occurs
+        referralWindowHours: 24,
+        maxReferralsPerDay: 5,
+        maxReferralsLifetime: 50,
+      },
+    });
+
+    prefix = await getCommandPrefix(client, ctx.gameServer.id);
+
+    referrerRoleId = await assignPermissions(client, ctx.players[0].playerId, ctx.gameServer.id, ['REFERRAL_USE']);
+    referee1RoleId = await assignPermissions(client, ctx.players[1].playerId, ctx.gameServer.id, ['REFERRAL_USE']);
+    referee2RoleId = await assignPermissions(client, ctx.players[2].playerId, ctx.gameServer.id, ['REFERRAL_USE']);
+  });
+
+  after(async () => {
+    await cleanupRole(client, referrerRoleId);
+    await cleanupRole(client, referee1RoleId);
+    await cleanupRole(client, referee2RoleId);
+    try { await uninstallModule(client, moduleId, ctx.gameServer.id); } catch (_) {}
+    try { await deleteModule(client, moduleId); } catch (_) {}
+    await stopMockServer(ctx.server, client, ctx.gameServer.id);
+  });
+
+  it('referralsTotal === 2 after two concurrent /referral calls for same referrer', async () => {
+    // Generate code for player[0] (referrer)
+    const beforeCode = new Date();
+    await client.command.commandControllerTrigger(ctx.gameServer.id, {
+      msg: `${prefix}refcode`,
+      playerId: ctx.players[0].playerId,
+    });
+    await waitForEvent(client, {
+      eventName: EventSearchInputAllowedFiltersEventNameEnum.CommandExecuted,
+      gameserverId: ctx.gameServer.id,
+      after: beforeCode,
+      timeout: 30000,
+    });
+
+    const codeVars = await client.variable.variableControllerSearch({
+      filters: {
+        key: ['referral_code'],
+        gameServerId: [ctx.gameServer.id],
+        moduleId: [moduleId],
+        playerId: [ctx.players[0].playerId],
+      },
+    });
+    const referrerCode = JSON.parse(codeVars.data.data[0].value).code;
+
+    // Fire two /referral commands in parallel (as close to concurrent as possible)
+    const before1 = new Date();
+    const [, ] = await Promise.all([
+      client.command.commandControllerTrigger(ctx.gameServer.id, {
+        msg: `${prefix}referral ${referrerCode}`,
+        playerId: ctx.players[1].playerId,
+      }),
+      client.command.commandControllerTrigger(ctx.gameServer.id, {
+        msg: `${prefix}referral ${referrerCode}`,
+        playerId: ctx.players[2].playerId,
+      }),
+    ]);
+
+    // Wait for both command-executed events
+    await waitForEvent(client, {
+      eventName: EventSearchInputAllowedFiltersEventNameEnum.CommandExecuted,
+      gameserverId: ctx.gameServer.id,
+      after: before1,
+      timeout: 30000,
+    });
+    // Wait a bit more to ensure both events are processed
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+
+    // Poll until referralsTotal reaches 2
+    const finalStats = await pollUntil(async () => {
+      const statsVars = await client.variable.variableControllerSearch({
+        filters: {
+          key: ['referral_stats'],
+          gameServerId: [ctx.gameServer.id],
+          moduleId: [moduleId],
+          playerId: [ctx.players[0].playerId],
+        },
+      });
+      if (statsVars.data.data.length === 0) return null;
+      const stats = JSON.parse(statsVars.data.data[0].value);
+      // Return stats if both increments are captured (or we've waited long enough)
+      return stats;
+    }, { timeout: 15000, interval: 500 });
+
+    // Both referees used the code — referralsTotal must be 2.
+    // If last-writer-wins (VI-2/VI-3 bugs), one increment is lost → referralsTotal = 1.
+    assert.equal(
+      (finalStats as any).referralsTotal,
+      2,
+      `Expected referralsTotal=2 after two concurrent /referral calls, got ${(finalStats as any).referralsTotal}. ` +
+      `This indicates a last-writer-wins race (VI-2/VI-3 not fixed).`,
+    );
+  });
+});

@@ -40,6 +40,7 @@ export async function writeVariable(gameServerId, moduleId, key, value, playerId
     } catch (err) {
       // 404 means the variable was deleted between findVariable and update (stale race).
       // Fall through to create a fresh record.
+      // 409 on update must bubble up to callers doing read-modify-write retry loops (VI-3).
       const status = err?.response?.status ?? err?.status;
       if (status !== 404) throw err;
       console.warn(`referral-helpers: writeVariable — stale variable ${existing.id} (404), recreating`);
@@ -47,22 +48,9 @@ export async function writeVariable(gameServerId, moduleId, key, value, playerId
   }
   const payload = { key, value: serialized, gameServerId, moduleId };
   if (playerId) payload.playerId = playerId;
-  try {
-    await takaro.variable.variableControllerCreate(payload);
-  } catch (err) {
-    // 409 Conflict means another concurrent writer already created it — treat as success,
-    // then update to ensure our value wins.
-    const status = err?.response?.status ?? err?.status;
-    if (status === 409) {
-      console.warn(`referral-helpers: writeVariable — 409 on create for key=${key}, updating instead`);
-      const fresh = await findVariable(gameServerId, moduleId, key, playerId);
-      if (fresh) {
-        await takaro.variable.variableControllerUpdate(fresh.id, { value: serialized });
-      }
-    } else {
-      throw err;
-    }
-  }
+  // Let 409 bubble up to callers (VI-3): updatePlayerStats catches 409 and retries with fresh state.
+  // Only 404 (variable deleted mid-update) is silently handled here.
+  await takaro.variable.variableControllerCreate(payload);
 }
 
 export async function deleteVariableRecord(gameServerId, moduleId, key, playerId) {
@@ -131,9 +119,15 @@ export async function setPlayerStats(gameServerId, moduleId, playerId, statsData
 }
 
 /**
- * Atomically apply a delta to player stats using a read-modify-write retry loop (VI-4).
+ * Atomically apply a delta to player stats using a read-modify-write retry loop (VI-3, VI-7).
  * The `applyDelta` function receives current stats and returns updated stats.
- * Retries up to maxRetries times on write conflict (re-reads on each retry).
+ * Retries up to maxRetries times ONLY on 409 Conflict (concurrent write).
+ * 500 errors are NOT retried — they often indicate persistent server issues and
+ * retrying just adds log noise (VI-7).
+ *
+ * Since writeVariable now lets 409 bubble up (VI-3), this retry loop sees conflicts
+ * correctly and re-reads fresh state before re-applying the delta closure, preventing
+ * last-writer-wins overwrites on concurrent stat updates.
  */
 export async function updatePlayerStats(gameServerId, moduleId, playerId, applyDelta, maxRetries = 5) {
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
@@ -144,9 +138,10 @@ export async function updatePlayerStats(gameServerId, moduleId, playerId, applyD
       return;
     } catch (err) {
       const status = err?.response?.status ?? err?.status;
-      if (attempt < maxRetries && (status === 409 || status === 500)) {
+      // Only retry on 409 Conflict (VI-7: do NOT retry on 500)
+      if (attempt < maxRetries && status === 409) {
         const delay = Math.min(100 * Math.pow(2, attempt), 2000);
-        console.warn(`referral-helpers: updatePlayerStats — write conflict (attempt ${attempt + 1}/${maxRetries}), retrying in ${delay}ms`);
+        console.warn(`referral-helpers: updatePlayerStats — 409 conflict (attempt ${attempt + 1}/${maxRetries}), retrying in ${delay}ms`);
         await new Promise((resolve) => setTimeout(resolve, delay));
         continue;
       }
@@ -497,8 +492,20 @@ async function _doPayReferral(gameServerId, moduleId, refereePlayerId, link, cla
   // Look up referrer's VIP tier
   const vipMultiplier = await getVipMultiplier(link.referrerId, gameServerId);
 
+  // PRE-PAYOUT GUARD (VI-1): Re-read the link immediately before calling payReferrer.
+  // If two workers both claimed 'in-flight' (last-writer-wins on the initial flip),
+  // only one will see their own claimToken here. The other will see a different token
+  // and abort without paying, preventing double-payment.
+  // Combined with the post-claim re-read above, this closes the race: even if a stale
+  // reclaim resurrected the link mid-pay (causing a second 'in-flight' write), the
+  // second worker's pre-payout re-read will see a different claimToken and abort.
+  const linkBeforePay = await getReferralLink(gameServerId, moduleId, refereePlayerId);
+  if (!linkBeforePay || linkBeforePay.status !== 'in-flight' || linkBeforePay.claimToken !== claimToken) {
+    console.warn(`referral-helpers: _doPayReferral — pre-payout guard: link no longer in-flight with our token for referee=${refereePlayerId} (status=${linkBeforePay?.status}, token match=${linkBeforePay?.claimToken === claimToken}), aborting to prevent double-payment`);
+    return linkBeforePay?.status ?? 'in-flight';
+  }
+
   // Attempt payout
-  const retries = link.retries || 0;
   const payResult = await payReferrer(gameServerId, link.referrerId, config, vipMultiplier);
 
   if (!payResult.paid) {
@@ -530,11 +537,13 @@ async function _doPayReferral(gameServerId, moduleId, refereePlayerId, link, cla
     }
   }
 
-  // Idempotency guard (VI-2): re-read the link BEFORE writing 'paid'. If it's already 'paid',
+  // Post-payout idempotency guard: re-read the link BEFORE writing 'paid'. If it's already 'paid',
   // another writer raced us and already committed the payout — abort to prevent double-stats-update.
+  // Note: the pre-payout guard above is the primary double-payment prevention; this guards the
+  // narrow window between payReferrer returning and our 'paid' write.
   const linkAfterPay = await getReferralLink(gameServerId, moduleId, refereePlayerId);
   if (linkAfterPay && linkAfterPay.status === 'paid') {
-    console.warn(`referral-helpers: _doPayReferral — idempotency guard triggered: link already paid for referee=${refereePlayerId}. Payout may have been applied twice; check referrer balance.`);
+    console.warn(`referral-helpers: _doPayReferral — post-payout idempotency guard triggered: link already paid for referee=${refereePlayerId}. Stats update skipped.`);
     return 'paid';
   }
 

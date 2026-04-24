@@ -2,8 +2,7 @@ import { data, takaro, TakaroUserError, checkPermission } from '@takaro/helpers'
 import {
   getReferralLink,
   setReferralLink,
-  getPlayerStats,
-  setPlayerStats,
+  updatePlayerStats,
   payReferrer,
   findPlayerByName,
   getVipMultiplier,
@@ -107,24 +106,25 @@ async function main() {
     paidType: payResult.type,
   });
 
-  // Update referrer stats
-  const referrerStats = await getPlayerStats(gameServerId, moduleId, referrerPlayerId);
+  // Update referrer stats atomically (VI-2, VI-3): use updatePlayerStats with retry-safe RMW.
+  // The closure re-reads on each 409 retry, preventing last-writer-wins overwrites.
   const today = todayUTC();
-  const todayCount = referrerStats.lastReferralDay === today ? referrerStats.referralsToday : 0;
-  const updatedStats = {
-    ...referrerStats,
-    referralsTotal: referrerStats.referralsTotal + 1,
-    referralsPaid: referrerStats.referralsPaid + 1,
-    referralsToday: todayCount + 1,
-    lastReferralDay: today,
-    currencyEarned: payResult.paid && (payResult.type === 'currency' || payResult.type === 'currency-fallback')
-      ? referrerStats.currencyEarned + (payResult.amount || 0)
-      : referrerStats.currencyEarned,
-    itemsEarned: payResult.paid && payResult.type === 'item'
-      ? referrerStats.itemsEarned + (payResult.amount || 1)
-      : referrerStats.itemsEarned,
-  };
-  await setPlayerStats(gameServerId, moduleId, referrerPlayerId, updatedStats);
+  await updatePlayerStats(gameServerId, moduleId, referrerPlayerId, (current) => {
+    const todayCount = current.lastReferralDay === today ? current.referralsToday : 0;
+    return {
+      ...current,
+      referralsTotal: current.referralsTotal + 1,
+      referralsPaid: current.referralsPaid + 1,
+      referralsToday: todayCount + 1,
+      lastReferralDay: today,
+      currencyEarned: (payResult.type === 'currency' || payResult.type === 'currency-fallback')
+        ? current.currencyEarned + (payResult.amount || 0)
+        : current.currencyEarned,
+      itemsEarned: payResult.type === 'item'
+        ? current.itemsEarned + (payResult.amount || 1)
+        : current.itemsEarned,
+    };
+  });
 
   // VI-35: Include player name/id in admin action logs
   console.log(`reflink: admin force-linked referee=${refereeName}(${refereePlayerId}) -> referrer=${referrerName}(${referrerPlayerId}), vipMultiplier=${vipMultiplier}`);

@@ -4,7 +4,7 @@ import {
   getReferralLink,
   setReferralLink,
   getPlayerStats,
-  setPlayerStats,
+  updatePlayerStats,
   findVariable,
   writeVariable,
   todayUTC,
@@ -100,6 +100,14 @@ async function main() {
     throw new TakaroUserError('The player who owns this referral code no longer exists on this server.');
   }
 
+  // VI-4: Verify referrer has a playerOnGameServer record (they must be on this server)
+  const referrerPogRes = await takaro.playerOnGameserver.playerOnGameServerControllerSearch({
+    filters: { gameServerId: [gameServerId], playerId: [referrerId] },
+  });
+  if (!referrerPogRes.data.data[0]) {
+    throw new TakaroUserError('The player who owns this referral code is not on this server.');
+  }
+
   // Block self-referral
   if (referrerId === player.id) {
     throw new TakaroUserError('You cannot use your own referral code.');
@@ -132,7 +140,9 @@ async function main() {
     );
   }
 
-  // Check referrer's daily cap
+  // Snapshot referrer stats for immediate cap feedback to player.
+  // Under concurrency the updatePlayerStats below is the authoritative guard;
+  // if a bypass occurs the sweep re-checks the lifetime cap before paying.
   const referrerStats = await getPlayerStats(gameServerId, moduleId, referrerId);
   const today = todayUTC();
   const todayCount = referrerStats.lastReferralDay === today ? referrerStats.referralsToday : 0;
@@ -159,14 +169,24 @@ async function main() {
     retries: 0,
   });
 
-  // Update referrer's stats (increment counters for new pending referral)
-  const updatedReferrerStats = {
-    ...referrerStats,
-    referralsTotal: referrerStats.referralsTotal + 1,
-    referralsToday: todayCount + 1,
-    lastReferralDay: today,
-  };
-  await setPlayerStats(gameServerId, moduleId, referrerId, updatedReferrerStats);
+  // Update referrer's stats atomically using retry-safe RMW (VI-2, VI-3).
+  // The closure re-reads fresh state on each retry, preventing last-writer-wins overwrites
+  // when multiple referees use the same referrer code concurrently.
+  try {
+    await updatePlayerStats(gameServerId, moduleId, referrerId, (current) => {
+      const currentTodayCount = current.lastReferralDay === today ? current.referralsToday : 0;
+      return {
+        ...current,
+        referralsTotal: current.referralsTotal + 1,
+        referralsToday: currentTodayCount + 1,
+        lastReferralDay: today,
+      };
+    });
+  } catch (err) {
+    // Stats update failed — link is already written, log and continue.
+    // The sweep will still process this referee correctly.
+    console.error(`referral: failed to update referrer stats for referrer=${referrerId}: ${err}`);
+  }
 
   // Pay referee welcome bonus (always currency regardless of prizeIsCurrency setting)
   // Per spec: fail the command when the welcome bonus grant throws so the player knows

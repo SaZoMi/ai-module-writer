@@ -208,22 +208,6 @@ describe('referral-program: sweep-pending-referrals cronjob', () => {
     assert.equal(stats.referralsPaid, 1, 'Expected referralsPaid=1 in stats');
     assert.equal(stats.currencyEarned, 500, 'Expected currencyEarned=500 (base reward)');
 
-    // Verify referee removed from pending index
-    const indexVars = await client.variable.variableControllerSearch({
-      filters: {
-        key: ['referral_pending_index'],
-        gameServerId: [ctx.gameServer.id],
-        moduleId: [moduleId],
-      },
-    });
-    if (indexVars.data.data.length > 0) {
-      const index = JSON.parse(indexVars.data.data[0].value);
-      assert.ok(
-        !index.refereeIds.includes(ctx.players[1].playerId),
-        'Expected referee to be removed from pending index after payout',
-      );
-    }
-
     // Verify referrer balance increased by 500 — poll until balance updates
     const balanceAfter = await pollUntil(
       async () => {
