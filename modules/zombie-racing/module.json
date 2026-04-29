@@ -1,0 +1,169 @@
+{
+  "name": "test-zombie-racing",
+  "author": "Limon",
+  "description": "A configurable virtual racing system where players can bet on named racers.",
+  "version": "latest",
+  "supportedGames": [
+    "all"
+  ],
+  "config": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "required": [],
+    "additionalProperties": true,
+    "properties": {
+      "minBet": {
+        "title": "minBet",
+        "description": "Minimum amount required to place a bet",
+        "default": 50,
+        "type": "number",
+        "minimum": 1
+      },
+      "maxBet": {
+        "title": "maxBet",
+        "description": "Maximum amount allowed for a bet",
+        "default": 1000,
+        "type": "number",
+        "minimum": 1
+      },
+      "racerTypeLabel": {
+        "title": "Racer type label",
+        "description": "Singular label for racers in command output.",
+        "default": "zombie",
+        "type": "string"
+      },
+      "racerTypePluralLabel": {
+        "title": "Racer type plural label",
+        "description": "Plural label for racers in command output.",
+        "default": "zombies",
+        "type": "string"
+      },
+      "raceName": {
+        "title": "Race name",
+        "description": "Display name for races.",
+        "default": "Zombie Race",
+        "type": "string"
+      },
+      "entrants": {
+        "title": "Entrants",
+        "description": "List of racers. Format: Name; Odds (whole number) - one racer per line.",
+        "default": [
+          "Biker; 2",
+          "Arlene; 3",
+          "Darlene; 3",
+          "Chuck; 4",
+          "Moe; 5",
+          "Nurse; 6"
+        ],
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  "permissions": [
+    {
+      "canHaveCount": false,
+      "description": "Allows the player to bet on races",
+      "permission": "RACING_BET",
+      "friendlyName": "Place Racing Bets"
+    },
+    {
+      "canHaveCount": false,
+      "description": "Allows the player to manage races",
+      "permission": "RACING_ADMIN",
+      "friendlyName": "Racing Admin"
+    }
+  ],
+  "commands": {
+    "raceleaderboard": {
+      "trigger": "raceleaderboard",
+      "description": "Show the top racing bettors and their statistics",
+      "helpText": "Usage: /raceleaderboard",
+      "function": "src/commands/raceleaderboard/index.js",
+      "arguments": []
+    },
+    "racers": {
+      "trigger": "racers",
+      "description": "List configured racers and race information",
+      "helpText": "Usage: /racers",
+      "function": "src/commands/racers/index.js",
+      "arguments": []
+    },
+    "racestats": {
+      "trigger": "racestats",
+      "description": "View your detailed racing statistics",
+      "helpText": "Usage: /racestats",
+      "function": "src/commands/racestats/index.js",
+      "arguments": []
+    },
+    "startrace": {
+      "trigger": "startrace",
+      "description": "Manually start a race (admin only)",
+      "helpText": "Usage: /startrace",
+      "function": "src/commands/startrace/index.js",
+      "arguments": []
+    },
+    "lastrace": {
+      "trigger": "lastrace",
+      "description": "Show the last race results",
+      "helpText": "Usage: /lastrace",
+      "function": "src/commands/lastrace/index.js",
+      "arguments": []
+    },
+    "nextrace": {
+      "trigger": "nextrace",
+      "description": "Show upcoming race information",
+      "helpText": "Usage: /nextrace",
+      "function": "src/commands/nextrace/index.js",
+      "arguments": []
+    },
+    "myracebets": {
+      "trigger": "myracebets",
+      "description": "Show your current race bets",
+      "helpText": "Usage: /myracebets",
+      "function": "src/commands/myracebets/index.js",
+      "arguments": []
+    },
+    "racebet": {
+      "trigger": "racebet",
+      "description": "Place a bet on a racer for the next race",
+      "helpText": "Usage: /racebet <racer> <amount>",
+      "function": "src/commands/racebet/index.js",
+      "arguments": [
+        {
+          "name": "racer",
+          "type": "string",
+          "defaultValue": "",
+          "helpText": "Name of the racer you want to bet on",
+          "position": 0
+        },
+        {
+          "name": "amount",
+          "type": "number",
+          "defaultValue": "0",
+          "helpText": "Amount of currency to bet",
+          "position": 1
+        }
+      ]
+    }
+  },
+  "cronJobs": {
+    "announceRace": {
+      "temporalValue": "45 1-23/2 * * *",
+      "description": "Announce each upcoming two-hour race 15 minutes before it starts",
+      "function": "src/cronjobs/announceRace/index.js"
+    },
+    "runRace": {
+      "temporalValue": "0 */2 * * *",
+      "description": "Run the scheduled race every two hours",
+      "function": "src/cronjobs/runRace/index.js"
+    }
+  },
+  "functions": {
+    "utils": {
+      "function": "src/functions/utils.js"
+    }
+  }
+}
