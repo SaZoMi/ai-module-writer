@@ -1,0 +1,188 @@
+{
+  "name": "test-playtime-buff-rewards",
+  "description": "Hourly playtime rewards with configurable currency, command, and buff rewards.",
+  "version": "latest",
+  "supportedGames": [
+    "all"
+  ],
+  "config": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "properties": {
+      "buffCommandTemplate": {
+        "type": "string",
+        "default": "buffplayer {playerName} {buffName}",
+        "description": "Console command template used to grant a buff. Supports {playerName}, {playerId}, {gameId}, and {buffName}."
+      },
+      "announceRewards": {
+        "type": "boolean",
+        "default": true,
+        "description": "Broadcast a message when a playtime reward is granted."
+      },
+      "defaultRewardMessage": {
+        "type": "string",
+        "default": "{playerName} received a playtime reward: {rewardName}.",
+        "description": "Fallback message for rewards that do not define their own message."
+      },
+      "buffRewards": {
+        "type": "array",
+        "default": [
+          {
+            "buffName": "WellFed",
+            "weight": 1,
+            "enabled": true,
+            "message": "{playerName} received the {buffName} buff for playing."
+          }
+        ],
+        "description": "Buff rewards eligible for hourly playtime grants.",
+        "items": {
+          "type": "object",
+          "properties": {
+            "buffName": {
+              "type": "string",
+              "description": "Buff name passed to the buff command.",
+              "pattern": "\\S"
+            },
+            "weight": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1,
+              "description": "Relative chance for this reward."
+            },
+            "enabled": {
+              "type": "boolean",
+              "default": true
+            },
+            "message": {
+              "type": "string",
+              "description": "Optional announcement template for this reward."
+            }
+          },
+          "required": [
+            "buffName"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "commandRewards": {
+        "type": "array",
+        "default": [],
+        "description": "Generic console-command rewards, useful for items such as food, drinks, ammo, or meds.",
+        "items": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "Human-readable reward name.",
+              "pattern": "\\S"
+            },
+            "command": {
+              "type": "string",
+              "description": "Console command template. Supports {playerName}, {playerId}, and {gameId}.",
+              "pattern": "\\S"
+            },
+            "weight": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            },
+            "enabled": {
+              "type": "boolean",
+              "default": true
+            },
+            "message": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "command"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "currencyRewards": {
+        "type": "array",
+        "default": [],
+        "description": "Takaro currency rewards eligible for hourly playtime grants.",
+        "items": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "default": "Currency",
+              "description": "Human-readable reward name."
+            },
+            "amount": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Currency amount to grant."
+            },
+            "weight": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            },
+            "enabled": {
+              "type": "boolean",
+              "default": true
+            },
+            "message": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "amount"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    "required": [],
+    "additionalProperties": false
+  },
+  "uiSchema": {},
+  "permissions": [
+    {
+      "permission": "PLAYTIME_BUFF_ADMIN",
+      "friendlyName": "Manage Playtime Buff Rewards",
+      "description": "Allows manually granting buffs through the playtime buff rewards module.",
+      "canHaveCount": false
+    }
+  ],
+  "commands": {
+    "grant-buff": {
+      "trigger": "grantbuff",
+      "description": "Grant a configured buff to a player",
+      "helpText": "Grant a buff to a player. Usage: grantbuff <player> <buffName>",
+      "function": "src/commands/grant-buff/index.js",
+      "arguments": [
+        {
+          "name": "player",
+          "type": "player",
+          "helpText": "Player receiving the buff",
+          "position": 0
+        },
+        {
+          "name": "buffName",
+          "type": "string",
+          "helpText": "Buff name to grant",
+          "position": 1
+        }
+      ]
+    }
+  },
+  "hooks": {},
+  "cronJobs": {
+    "grant-playtime-rewards": {
+      "temporalValue": "0 * * * *",
+      "description": "Grant a random configured reward to each online player every hour.",
+      "function": "src/cronjobs/grant-playtime-rewards/index.js"
+    }
+  },
+  "functions": {
+    "playtime-buff-helpers": {
+      "function": "src/functions/playtime-buff-helpers.js"
+    }
+  }
+}
