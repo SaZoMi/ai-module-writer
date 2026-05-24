@@ -1,0 +1,381 @@
+{
+  "name": "build-mini-games-sonnet-2605131035",
+  "description": "Unified mini-games module with daily puzzles (Wordle, Hangman, Hot/Cold) and live chat rounds (Trivia, Scramble, Math race, Reaction race).",
+  "configSchema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "properties": {
+      "liveRoundIntervalMinutes": {
+        "type": "number",
+        "default": 30
+      },
+      "minPlayersForLiveRound": {
+        "type": "number",
+        "default": 2
+      },
+      "liveRoundAnswerWindowSec": {
+        "type": "number",
+        "default": 60
+      },
+      "pointsToCurrencyRate": {
+        "type": "number",
+        "default": 0
+      },
+      "dailyPointsCapPerPlayer": {
+        "type": "number",
+        "default": 0
+      },
+      "bigScoreThreshold": {
+        "type": "number",
+        "default": 500
+      },
+      "pointsWordleBase": {
+        "type": "number",
+        "default": 100
+      },
+      "pointsHangmanBase": {
+        "type": "number",
+        "default": 80
+      },
+      "pointsHotColdBase": {
+        "type": "number",
+        "default": 60
+      },
+      "pointsTriviaWin": {
+        "type": "number",
+        "default": 40
+      },
+      "pointsScrambleWin": {
+        "type": "number",
+        "default": 40
+      },
+      "pointsMathRaceWin": {
+        "type": "number",
+        "default": 40
+      },
+      "pointsReactionRaceWin": {
+        "type": "number",
+        "default": 20
+      },
+      "triviaQuestionSource": {
+        "type": "string",
+        "enum": [
+          "api",
+          "custom"
+        ],
+        "default": "api"
+      },
+      "triviaApiDifficulty": {
+        "type": "string",
+        "enum": [
+          "any",
+          "easy",
+          "medium",
+          "hard"
+        ],
+        "default": "any"
+      },
+      "triviaApiType": {
+        "type": "string",
+        "enum": [
+          "any",
+          "multiple",
+          "boolean"
+        ],
+        "default": "any"
+      },
+      "enableTrivia": {
+        "type": "boolean",
+        "default": true
+      },
+      "enableScramble": {
+        "type": "boolean",
+        "default": true
+      },
+      "enableMathRace": {
+        "type": "boolean",
+        "default": true
+      },
+      "enableReactionRace": {
+        "type": "boolean",
+        "default": true
+      }
+    },
+    "required": [],
+    "additionalProperties": false
+  },
+  "permissions": [
+    {
+      "permission": "MINIGAMES_PLAY",
+      "friendlyName": "Play mini-games",
+      "description": "Allowed to play mini-games.",
+      "canHaveCount": false
+    },
+    {
+      "permission": "MINIGAMES_BOOST",
+      "friendlyName": "Mini-games boost tier",
+      "description": "+25% points per count tier (cap 4 = 2.0x).",
+      "canHaveCount": true
+    },
+    {
+      "permission": "MINIGAMES_MANAGE",
+      "friendlyName": "Manage mini-games",
+      "description": "Access to admin commands.",
+      "canHaveCount": false
+    },
+    {
+      "permission": "MINIGAMES_BANNED",
+      "friendlyName": "Banned from mini-games",
+      "description": "Marker for explicit play-ban.",
+      "canHaveCount": false
+    }
+  ],
+  "commands": {
+    "wordle": {
+      "trigger": "wordle",
+      "description": "Daily 5-letter word puzzle",
+      "helpText": "No arg = show status, with 5-letter arg = submit guess.",
+      "function": "src/commands/wordle.js",
+      "arguments": [
+        {
+          "name": "guess",
+          "type": "string",
+          "helpText": "Your 5-letter guess",
+          "position": 0,
+          "defaultValue": ""
+        }
+      ]
+    },
+    "hangman": {
+      "trigger": "hangman",
+      "description": "Daily hangman game",
+      "helpText": "No arg = show board, single letter = guess, full word = solve attempt.",
+      "function": "src/commands/hangman.js",
+      "arguments": [
+        {
+          "name": "letterOrWord",
+          "type": "string",
+          "helpText": "A single letter or complete word guess",
+          "position": 0,
+          "defaultValue": ""
+        }
+      ]
+    },
+    "hotcold": {
+      "trigger": "hotcold",
+      "description": "Daily hot/cold number guessing game",
+      "helpText": "No arg = status, number (1-1000) = submit guess.",
+      "function": "src/commands/hotcold.js",
+      "arguments": [
+        {
+          "name": "number",
+          "type": "number",
+          "helpText": "Your number guess (1-1000)",
+          "position": 0,
+          "defaultValue": ""
+        }
+      ]
+    },
+    "answer": {
+      "trigger": "answer",
+      "description": "Answer the active live round",
+      "helpText": "Submit your answer to the active live round (trivia, scramble, math race).",
+      "function": "src/commands/answer.js",
+      "arguments": [
+        {
+          "name": "response",
+          "type": "string",
+          "helpText": "Your answer to the active live round",
+          "position": 0,
+          "defaultValue": ""
+        }
+      ]
+    },
+    "minigames": {
+      "trigger": "minigames",
+      "description": "Mini-games help overview",
+      "helpText": "Show mini-games help. Optionally specify a game name for detailed rules.",
+      "function": "src/commands/minigames.js",
+      "arguments": [
+        {
+          "name": "game",
+          "type": "string",
+          "helpText": "Game name for specific help (wordle, hangman, hotcold, trivia, scramble, mathrace, reactionrace)",
+          "position": 0,
+          "defaultValue": ""
+        }
+      ]
+    },
+    "minigamestats": {
+      "trigger": "minigamestats",
+      "description": "View mini-games stats",
+      "helpText": "View lifetime and daily stats. Optionally specify another player's name.",
+      "function": "src/commands/minigamestats.js",
+      "arguments": [
+        {
+          "name": "player",
+          "type": "string",
+          "helpText": "Player name to view stats for (defaults to yourself)",
+          "position": 0,
+          "defaultValue": ""
+        }
+      ]
+    },
+    "minigamestop": {
+      "trigger": "minigamestop",
+      "description": "Mini-games leaderboard",
+      "helpText": "Show leaderboard. Category: points, wordle, hangman, or streak.",
+      "function": "src/commands/minigamestop.js",
+      "arguments": [
+        {
+          "name": "category",
+          "type": "string",
+          "helpText": "Leaderboard category: points, wordle, hangman, or streak",
+          "position": 0,
+          "defaultValue": "points"
+        }
+      ]
+    },
+    "puzzle": {
+      "trigger": "puzzle",
+      "description": "Today's async puzzle status",
+      "helpText": "Show today's async puzzle status (Wordle, Hangman, Hot/Cold).",
+      "function": "src/commands/puzzle.js",
+      "arguments": []
+    },
+    "minigamesban": {
+      "trigger": "minigamesban",
+      "description": "Ban a player from mini-games",
+      "helpText": "Ban a player. Optionally specify duration in hours (permanent if omitted).",
+      "function": "src/commands/minigamesban.js",
+      "arguments": [
+        {
+          "name": "player",
+          "type": "string",
+          "helpText": "Player name to ban",
+          "position": 0,
+          "defaultValue": ""
+        },
+        {
+          "name": "hours",
+          "type": "number",
+          "helpText": "Ban duration in hours (permanent if omitted)",
+          "position": 1,
+          "defaultValue": ""
+        }
+      ]
+    },
+    "minigamesunban": {
+      "trigger": "minigamesunban",
+      "description": "Unban a player from mini-games",
+      "helpText": "Remove a ban from a player.",
+      "function": "src/commands/minigamesunban.js",
+      "arguments": [
+        {
+          "name": "player",
+          "type": "string",
+          "helpText": "Player name to unban",
+          "position": 0,
+          "defaultValue": ""
+        }
+      ]
+    },
+    "minigamesresetstats": {
+      "trigger": "minigamesresetstats",
+      "description": "Reset a player's mini-games stats",
+      "helpText": "Wipe a player's lifetime mini-games stats.",
+      "function": "src/commands/minigamesresetstats.js",
+      "arguments": [
+        {
+          "name": "player",
+          "type": "string",
+          "helpText": "Player name to reset stats for",
+          "position": 0,
+          "defaultValue": ""
+        }
+      ]
+    },
+    "minigamesskiproundnow": {
+      "trigger": "minigamesskiproundnow",
+      "description": "Skip the active live round",
+      "helpText": "Cancel the currently active live round with no winner.",
+      "function": "src/commands/minigamesskiproundnow.js",
+      "arguments": []
+    },
+    "minigamesfirenow": {
+      "trigger": "minigamesfirenow",
+      "description": "Fire a live round immediately",
+      "helpText": "Immediately fire a live round. Optionally specify the game.",
+      "function": "src/commands/minigamesfirenow.js",
+      "arguments": [
+        {
+          "name": "game",
+          "type": "string",
+          "helpText": "Game to fire (trivia, scramble, mathrace, reactionrace). Random if omitted.",
+          "position": 0,
+          "defaultValue": ""
+        }
+      ]
+    },
+    "minigamesreport": {
+      "trigger": "minigamesreport",
+      "description": "Mini-games aggregated report",
+      "helpText": "PM you an aggregated mini-games report.",
+      "function": "src/commands/minigamesreport.js",
+      "arguments": [
+        {
+          "name": "days",
+          "type": "number",
+          "helpText": "Days to include in report (default 7)",
+          "position": 0,
+          "defaultValue": "7"
+        }
+      ]
+    }
+  },
+  "hooks": {
+    "onChatMessage": {
+      "name": "onChatMessage",
+      "eventType": "chat-message",
+      "function": "src/hooks/chat-message.js"
+    },
+    "onPlayerDisconnect": {
+      "name": "onPlayerDisconnect",
+      "eventType": "player-disconnected",
+      "function": "src/hooks/player-disconnected.js"
+    }
+  },
+  "cronJobs": {
+    "rolloverDailyPuzzles": {
+      "name": "rolloverDailyPuzzles",
+      "temporalValue": "0 0 * * *",
+      "function": "src/cronjobs/rolloverDailyPuzzles.js"
+    },
+    "fireLiveRound": {
+      "name": "fireLiveRound",
+      "temporalValue": "*/5 * * * *",
+      "function": "src/cronjobs/fireLiveRound.js"
+    },
+    "closeLiveRound": {
+      "name": "closeLiveRound",
+      "temporalValue": "* * * * *",
+      "function": "src/cronjobs/closeLiveRound.js"
+    },
+    "refreshLeaderboards": {
+      "name": "refreshLeaderboards",
+      "temporalValue": "*/5 * * * *",
+      "function": "src/cronjobs/refreshLeaderboards.js"
+    },
+    "expireWindows": {
+      "name": "expireWindows",
+      "temporalValue": "0 0 * * *",
+      "function": "src/cronjobs/expireWindows.js"
+    },
+    "expireBans": {
+      "name": "expireBans",
+      "temporalValue": "0 * * * *",
+      "function": "src/cronjobs/expireBans.js"
+    }
+  },
+  "functions": {}
+}

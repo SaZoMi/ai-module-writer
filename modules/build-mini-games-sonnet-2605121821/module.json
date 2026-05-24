@@ -1,0 +1,401 @@
+{
+  "name": "build-mini-games-sonnet-2605121821",
+  "description": "Unified mini-games module with daily puzzles (Wordle, Hangman, Hot/Cold) and live chat rounds (Trivia, Scramble, Math race, Reaction race). Skill-based, point-scoring, optional currency rewards, boost tiers, cross-game leaderboards.",
+  "version": "latest",
+  "supportedGames": [
+    "all"
+  ],
+  "config": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [],
+    "properties": {
+      "liveRoundIntervalMinutes": {
+        "type": "number",
+        "default": 30,
+        "minimum": 5,
+        "description": "Minutes between live rounds"
+      },
+      "minPlayersForLiveRound": {
+        "type": "number",
+        "default": 2,
+        "minimum": 1,
+        "description": "Minimum online players to fire a live round"
+      },
+      "liveRoundAnswerWindowSec": {
+        "type": "number",
+        "default": 60,
+        "minimum": 15,
+        "description": "Seconds players have to answer a live round"
+      },
+      "pointsToCurrencyRate": {
+        "type": "number",
+        "default": 0,
+        "description": "Currency paid per point. 0 disables currency rewards."
+      },
+      "dailyPointsCapPerPlayer": {
+        "type": "number",
+        "default": 0,
+        "description": "Max points per UTC day per player. 0 = unlimited."
+      },
+      "bigScoreThreshold": {
+        "type": "number",
+        "default": 500,
+        "description": "Scores at/above this trigger a server-wide announcement."
+      },
+      "pointsWordleBase": {
+        "type": "number",
+        "default": 100
+      },
+      "pointsHangmanBase": {
+        "type": "number",
+        "default": 80
+      },
+      "pointsHotColdBase": {
+        "type": "number",
+        "default": 60
+      },
+      "pointsTriviaWin": {
+        "type": "number",
+        "default": 40
+      },
+      "pointsScrambleWin": {
+        "type": "number",
+        "default": 40
+      },
+      "pointsMathRaceWin": {
+        "type": "number",
+        "default": 40
+      },
+      "pointsReactionRaceWin": {
+        "type": "number",
+        "default": 20
+      },
+      "triviaQuestionSource": {
+        "type": "string",
+        "enum": [
+          "api",
+          "custom"
+        ],
+        "default": "api"
+      },
+      "triviaApiDifficulty": {
+        "type": "string",
+        "enum": [
+          "any",
+          "easy",
+          "medium",
+          "hard"
+        ],
+        "default": "any"
+      },
+      "triviaApiType": {
+        "type": "string",
+        "enum": [
+          "any",
+          "multiple",
+          "boolean"
+        ],
+        "default": "any"
+      },
+      "enableWordle": {
+        "type": "boolean",
+        "default": true
+      },
+      "enableHangman": {
+        "type": "boolean",
+        "default": true
+      },
+      "enableHotCold": {
+        "type": "boolean",
+        "default": true
+      },
+      "enableTrivia": {
+        "type": "boolean",
+        "default": true
+      },
+      "enableScramble": {
+        "type": "boolean",
+        "default": true
+      },
+      "enableMathRace": {
+        "type": "boolean",
+        "default": true
+      },
+      "enableReactionRace": {
+        "type": "boolean",
+        "default": true
+      }
+    }
+  },
+  "uiSchema": {},
+  "permissions": [
+    {
+      "permission": "MINIGAMES_PLAY",
+      "friendlyName": "Play mini-games",
+      "canHaveCount": false,
+      "description": "Allowed to play."
+    },
+    {
+      "permission": "MINIGAMES_BOOST",
+      "friendlyName": "Mini-games boost tier",
+      "canHaveCount": true,
+      "description": "+25% points per count (cap 4 = 2.0x)."
+    },
+    {
+      "permission": "MINIGAMES_MANAGE",
+      "friendlyName": "Manage mini-games",
+      "canHaveCount": false,
+      "description": "Admin commands."
+    },
+    {
+      "permission": "MINIGAMES_BANNED",
+      "friendlyName": "Banned from mini-games",
+      "canHaveCount": false,
+      "description": "Marker for explicit play-ban."
+    }
+  ],
+  "commands": {
+    "wordle": {
+      "trigger": "wordle",
+      "description": "Daily 5-letter Wordle puzzle. No arg = status, with guess = submit.",
+      "helpText": "Usage: /wordle [guess] — No arg shows today's attempts; with 5-letter guess submits a guess.",
+      "function": "src/commands/wordle.js",
+      "arguments": [
+        {
+          "name": "guess",
+          "type": "string",
+          "helpText": "Your 5-letter guess.",
+          "defaultValue": "__status__",
+          "position": 0
+        }
+      ]
+    },
+    "hangman": {
+      "trigger": "hangman",
+      "description": "Daily Hangman puzzle. No arg = board, letter = guess, word = solve.",
+      "helpText": "Usage: /hangman [letter|word] — No arg shows board; letter guesses; word attempts solve.",
+      "function": "src/commands/hangman.js",
+      "arguments": [
+        {
+          "name": "letterOrWord",
+          "type": "string",
+          "helpText": "A single letter or the full word.",
+          "defaultValue": "__status__",
+          "position": 0
+        }
+      ]
+    },
+    "hotcold": {
+      "trigger": "hotcold",
+      "description": "Daily Hot/Cold number puzzle. No arg = status, number = guess.",
+      "helpText": "Usage: /hotcold [number] — No arg shows trail; number 1-1000 submits guess.",
+      "function": "src/commands/hotcold.js",
+      "arguments": [
+        {
+          "name": "number",
+          "type": "number",
+          "helpText": "Your guess (1-1000).",
+          "defaultValue": "0",
+          "position": 0
+        }
+      ]
+    },
+    "answer": {
+      "trigger": "answer",
+      "description": "Submit your answer to the active live round.",
+      "helpText": "Usage: /answer <response> — Submit your answer to the active live round.",
+      "function": "src/commands/answer.js",
+      "arguments": [
+        {
+          "name": "response",
+          "type": "string",
+          "helpText": "Your answer to the active live round.",
+          "position": 0
+        }
+      ]
+    },
+    "minigames": {
+      "trigger": "minigames",
+      "description": "Mini-games help and overview.",
+      "helpText": "Usage: /minigames [game] — Show help for all games or a specific game.",
+      "function": "src/commands/minigames.js",
+      "arguments": [
+        {
+          "name": "game",
+          "type": "string",
+          "helpText": "Game name for detailed rules.",
+          "defaultValue": "all",
+          "position": 0
+        }
+      ]
+    },
+    "puzzle": {
+      "trigger": "puzzle",
+      "description": "Show today's daily puzzle status.",
+      "helpText": "Usage: /puzzle — Shows which daily puzzles you've played and time until rollover.",
+      "function": "src/commands/puzzle.js",
+      "arguments": []
+    },
+    "minigamestats": {
+      "trigger": "minigamestats",
+      "description": "Show mini-games stats for yourself or another player.",
+      "helpText": "Usage: /minigamestats [player] — Show lifetime and current-day stats.",
+      "function": "src/commands/minigamestats.js",
+      "arguments": [
+        {
+          "name": "player",
+          "type": "string",
+          "helpText": "Player name or ID (optional, defaults to yourself).",
+          "defaultValue": "self",
+          "position": 0
+        }
+      ]
+    },
+    "minigamestop": {
+      "trigger": "minigamestop",
+      "description": "Show mini-games leaderboard.",
+      "helpText": "Usage: /minigamestop <points|wordle|hangman|streak> — Show leaderboard.",
+      "function": "src/commands/minigamestop.js",
+      "arguments": [
+        {
+          "name": "category",
+          "type": "string",
+          "helpText": "Leaderboard category: points, wordle, hangman, or streak.",
+          "position": 0
+        }
+      ]
+    },
+    "minigamesban": {
+      "trigger": "minigamesban",
+      "description": "Ban a player from mini-games.",
+      "helpText": "Usage: /minigamesban <player> [hours] — Ban permanently or temporarily.",
+      "function": "src/commands/minigamesban.js",
+      "arguments": [
+        {
+          "name": "player",
+          "type": "player",
+          "helpText": "Player to ban.",
+          "position": 0
+        },
+        {
+          "name": "hours",
+          "type": "number",
+          "helpText": "Ban duration in hours (omit for permanent).",
+          "defaultValue": "0",
+          "position": 1
+        }
+      ]
+    },
+    "minigamesunban": {
+      "trigger": "minigamesunban",
+      "description": "Unban a player from mini-games.",
+      "helpText": "Usage: /minigamesunban <player>.",
+      "function": "src/commands/minigamesunban.js",
+      "arguments": [
+        {
+          "name": "player",
+          "type": "player",
+          "helpText": "Player to unban.",
+          "position": 0
+        }
+      ]
+    },
+    "minigamesresetstats": {
+      "trigger": "minigamesresetstats",
+      "description": "Reset a player's lifetime mini-games stats.",
+      "helpText": "Usage: /minigamesresetstats <player>.",
+      "function": "src/commands/minigamesresetstats.js",
+      "arguments": [
+        {
+          "name": "player",
+          "type": "player",
+          "helpText": "Player whose stats to reset.",
+          "position": 0
+        }
+      ]
+    },
+    "minigamesskiproundnow": {
+      "trigger": "minigamesskiproundnow",
+      "description": "Cancel the current active live round.",
+      "helpText": "Usage: /minigamesskiproundnow — Cancel the active live round with no winner.",
+      "function": "src/commands/minigamesskiproundnow.js",
+      "arguments": []
+    },
+    "minigamesfirenow": {
+      "trigger": "minigamesfirenow",
+      "description": "Fire a live round immediately.",
+      "helpText": "Usage: /minigamesfirenow [game] — Start a live round now.",
+      "function": "src/commands/minigamesfirenow.js",
+      "arguments": [
+        {
+          "name": "game",
+          "type": "string",
+          "helpText": "Game to fire: trivia, scramble, mathrace, reactionrace. Random if omitted.",
+          "position": 0
+        }
+      ]
+    },
+    "minigamesreport": {
+      "trigger": "minigamesreport",
+      "description": "PM yourself a mini-games activity report.",
+      "helpText": "Usage: /minigamesreport — Send a stats report.",
+      "function": "src/commands/minigamesreport.js",
+      "arguments": [
+        {
+          "name": "days",
+          "type": "number",
+          "helpText": "Days to report on (default 7).",
+          "defaultValue": "7",
+          "position": 0
+        }
+      ]
+    }
+  },
+  "hooks": {
+    "onChatMessage": {
+      "eventType": "chat-message",
+      "description": "Reaction race: catch the first player to type the token in chat.",
+      "function": "src/hooks/chat-message.js"
+    },
+    "onPlayerDisconnect": {
+      "eventType": "player-disconnected",
+      "description": "Soft cleanup on player disconnect. Sessions persist in v1.",
+      "function": "src/hooks/player-disconnected.js"
+    }
+  },
+  "cronJobs": {
+    "rolloverDailyPuzzles": {
+      "temporalValue": "0 0 * * *",
+      "description": "Daily UTC midnight rollover: new Wordle/Hangman/HotCold puzzles, clear sessions.",
+      "function": "src/cronjobs/rolloverDailyPuzzles.js"
+    },
+    "fireLiveRound": {
+      "temporalValue": "*/5 * * * *",
+      "description": "Fire a live game round if interval elapsed and enough players online.",
+      "function": "src/cronjobs/fireLiveRound.js"
+    },
+    "closeLiveRound": {
+      "temporalValue": "* * * * *",
+      "description": "Close expired live rounds and announce the answer.",
+      "function": "src/cronjobs/closeLiveRound.js"
+    },
+    "refreshLeaderboards": {
+      "temporalValue": "*/5 * * * *",
+      "description": "Recompute top-10 leaderboards from stats variables.",
+      "function": "src/cronjobs/refreshLeaderboards.js"
+    },
+    "expireWindows": {
+      "temporalValue": "0 0 * * *",
+      "description": "Delete prior-day point window variables at UTC midnight.",
+      "function": "src/cronjobs/expireWindows.js"
+    },
+    "expireBans": {
+      "temporalValue": "0 * * * *",
+      "description": "Remove expired temporary bans every hour.",
+      "function": "src/cronjobs/expireBans.js"
+    }
+  },
+  "functions": {}
+}

@@ -1,0 +1,20 @@
+{
+  "name": "build-mini-games-sonnet-2605121815",
+  "description": "Unified mini-games module with daily puzzles (Wordle, Hangman, Hot/Cold) and live chat rounds (Trivia, Scramble, Math race, Reaction race). Skill-based, point-scoring, optional currency/item rewards, boost tiers, cross-game leaderboards.",
+  "version": "latest",
+  "supportedGames": [
+    "all"
+  ],
+  "config": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "properties": {},
+    "required": [],
+    "additionalProperties": false
+  },
+  "permissions": [],
+  "commands": {},
+  "hooks": {},
+  "cronJobs": {},
+  "functions": {}
+}
